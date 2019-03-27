@@ -23,16 +23,23 @@
 #import "MPResponseConfig.h"
 #import "MPConsentKitFilter.h"
 #import "MPPersistenceController.h"
-#import "MPKitInstanceValidator.h"
+#import "MPBaseTestCase.h"
+#import "OCMock.h"
+#import "MPKitProtocol.h"
 
 @interface MParticle ()
+
 + (dispatch_queue_t)messageQueue;
+@property (nonatomic, strong) MPStateMachine *stateMachine;
+@property (nonatomic, strong) MPKitContainer *kitContainer;
+
 @end
 
-@interface MPKitInstanceValidator(BackendControllerTests)
-+ (void)includeUnitTestKits:(NSArray<NSNumber *> *)kitCodes;
-@end
+@interface MParticleUser ()
 
+@property(readwrite) BOOL isLoggedIn;
+
+@end
 
 #pragma mark - MPKitContainer category for unit tests
 @interface MPKitContainer(Tests)
@@ -44,26 +51,27 @@
 - (BOOL)isDisabledByBracketConfiguration:(NSDictionary *)bracketConfiguration;
 - (BOOL)isDisabledByConsentKitFilter:(MPConsentKitFilter *)kitFilter;
 - (void)replayQueuedItems;
-- (NSDictionary *)validateAndTransformToSafeConfiguration:(NSDictionary *)configuration;
 - (id)transformValue:(NSString *)originalValue dataType:(MPDataType)dataType;
 - (void)handleApplicationDidBecomeActive:(NSNotification *)notification;
 - (void)handleApplicationDidFinishLaunching:(NSNotification *)notification;
-- (nullable NSString *)nameForKitCode:(nonnull NSNumber *)kitCode;
-- (id<MPKitProtocol>)startKit:(NSNumber *)kitCode configuration:(MPKitConfiguration *)kitConfiguration;
+- (nullable NSString *)nameForKitCode:(nonnull NSNumber *)integrationId;
+- (id<MPKitProtocol>)startKit:(NSNumber *)integrationId configuration:(MPKitConfiguration *)kitConfiguration;
 - (void)flushSerializedKits;
 - (NSDictionary *)methodMessageTypeMapping;
-- (void)filter:(id<MPExtensionKitProtocol>)kitRegister forEvent:(MPEvent *const)event selector:(SEL)selector completionHandler:(void (^)(MPKitFilter *kitFilter, BOOL finished))completionHandler;
+- (MPKitFilter *)filter:(id<MPExtensionKitProtocol>)kitRegister forEvent:(MPEvent *const)event selector:(SEL)selector;
 - (MPKitFilter *)filter:(id<MPExtensionKitProtocol>)kitRegister forSelector:(SEL)selector;
 - (MPKitFilter *)filter:(id<MPExtensionKitProtocol>)kitRegister forUserAttributeKey:(NSString *)key value:(id)value;
 - (MPKitFilter *)filter:(id<MPExtensionKitProtocol>)kitRegister forUserAttributes:(NSDictionary *)userAttributes;
 - (MPKitFilter *)filter:(id<MPExtensionKitProtocol>)kitRegister forUserIdentityKey:(NSString *)key identityType:(MPUserIdentity)identityType;
-- (void)filter:(id<MPExtensionKitProtocol>)kitRegister forCommerceEvent:(MPCommerceEvent *const)commerceEvent completionHandler:(void (^)(MPKitFilter *kitFilter, BOOL finished))completionHandler;
+- (MPKitFilter *)filter:(id<MPExtensionKitProtocol>)kitRegister forCommerceEvent:(MPCommerceEvent *const)commerceEvent;
+- (void)attemptToLogEventToKit:(id<MPExtensionKitProtocol>)kitRegister kitFilter:(MPKitFilter *)kitFilter selector:(SEL)selector parameters:(nullable MPForwardQueueParameters *)parameters messageType:(MPMessageType)messageType userInfo:(NSDictionary *)userInfo;
+
 
 @end
 
 
 #pragma mark - MPKitContainerTests
-@interface MPKitContainerTests : XCTestCase {
+@interface MPKitContainerTests : MPBaseTestCase {
     MPKitContainer *kitContainer;
 }
 
@@ -75,11 +83,13 @@
 - (void)setUp {
     [super setUp];
     
-    MPStateMachine *stateMachine = [MPStateMachine sharedInstance];
+    [MParticle sharedInstance].stateMachine = [[MPStateMachine alloc] init];
+    MPStateMachine *stateMachine = [MParticle sharedInstance].stateMachine;
     stateMachine.apiKey = @"unit_test_app_key";
     stateMachine.secret = @"unit_test_secret";
     
-    kitContainer = [MPKitContainer sharedInstance];
+    [MParticle sharedInstance].kitContainer = [[MPKitContainer alloc] init];
+    kitContainer = [MParticle sharedInstance].kitContainer;
 
     NSSet<id<MPExtensionProtocol>> *registeredKits = [MPKitContainer registeredKits];
     if (!registeredKits) {
@@ -100,8 +110,7 @@
                                         };
         
         MPKitConfiguration *kitConfiguration = [[MPKitConfiguration alloc] initWithDictionary:configuration];
-        [MPKitInstanceValidator includeUnitTestKits:@[@42]];
-        [kitContainer startKit:@42 configuration:kitConfiguration];
+        [[kitContainer startKit:@42 configuration:kitConfiguration] start];
     }
     
     NSPredicate *predicate = [NSPredicate predicateWithFormat:@"code == 92"];
@@ -113,8 +122,10 @@
 }
 
 - (void)tearDown {
+    for (MPKitRegister *kitRegister in [MPKitContainer registeredKits]) {
+        kitRegister.wrapperInstance = nil;
+    }
     kitContainer = nil;
-    [[MParticle sharedInstance] clearMParticleData];
 
     [super tearDown];
 }
@@ -166,39 +177,30 @@
     
     NSArray *kitConfigs = @[configuration1, configuration2];
     
-    XCTestExpectation *expectation = [self expectationWithDescription:@"Test instance"];
-    dispatch_async([MParticle messageQueue], ^{
-        NSString *eTag = @"1.618-2.718-3.141-42";
-        NSDictionary __block *configuration = @{kMPRemoteConfigKitsKey:kitConfigs,
-                                        kMPRemoteConfigCustomModuleSettingsKey:[NSNull null],
-                                        kMPRemoteConfigRampKey:@100,
-                                        kMPRemoteConfigTriggerKey:[NSNull null],
-                                        kMPRemoteConfigExceptionHandlingModeKey:kMPRemoteConfigExceptionHandlingModeForce,
-                                        kMPRemoteConfigSessionTimeoutKey:@112};
-        
-        MPResponseConfig *responseConfig = [[MPResponseConfig alloc] initWithConfiguration:configuration];
-        
-        [MPResponseConfig save:responseConfig eTag:eTag];
-        
-        XCTAssertEqual(@"cool app key", [self->kitContainer.kitConfigurations objectForKey:@(42)].configuration[@"appId"]);
-        
-        NSArray *directoryContents = [[MPIUserDefaults standardUserDefaults] getKitConfigurations];
-        for (NSDictionary *kitConfigurationDictionary in directoryContents) {
-            MPKitConfiguration *kitConfiguration = [[MPKitConfiguration alloc] initWithDictionary:kitConfigurationDictionary];
-            if ([[kitConfiguration kitCode] isEqual:@(42)]){
-                XCTAssertEqualObjects(@"cool app key", kitConfiguration.configuration[@"appId"]);
-            }
-            
-            if ([[kitConfiguration kitCode] isEqual:@(312)]){
-                
-                XCTAssertEqualObjects(@"cool app key 2", kitConfiguration.configuration[@"appId"]);
-            }
-        }
-
-        [expectation fulfill];
-    });
+    NSString *eTag = @"1.618-2.718-3.141-42";
+    NSDictionary __block *configuration = @{kMPRemoteConfigKitsKey:kitConfigs,
+                                            kMPRemoteConfigCustomModuleSettingsKey:[NSNull null],
+                                            kMPRemoteConfigRampKey:@100,
+                                            kMPRemoteConfigTriggerKey:[NSNull null],
+                                            kMPRemoteConfigExceptionHandlingModeKey:kMPRemoteConfigExceptionHandlingModeForce,
+                                            kMPRemoteConfigSessionTimeoutKey:@112};
     
-    [self waitForExpectationsWithTimeout:10 handler:nil];
+    MPResponseConfig *responseConfig = [[MPResponseConfig alloc] initWithConfiguration:configuration];
+    
+    [MPResponseConfig save:responseConfig eTag:eTag];
+        
+    NSArray *directoryContents = [[MPIUserDefaults standardUserDefaults] getKitConfigurations];
+    for (NSDictionary *kitConfigurationDictionary in directoryContents) {
+        MPKitConfiguration *kitConfiguration = [[MPKitConfiguration alloc] initWithDictionary:kitConfigurationDictionary];
+        if ([[kitConfiguration integrationId] isEqual:@(42)]){
+            XCTAssertEqualObjects(@"cool app key", kitConfiguration.configuration[@"appId"]);
+        }
+        
+        if ([[kitConfiguration integrationId] isEqual:@(312)]){
+            
+            XCTAssertEqualObjects(@"cool app key 2", kitConfiguration.configuration[@"appId"]);
+        }
+    }    
 }
 
 - (void)testRemoveKitConfiguration {
@@ -241,11 +243,11 @@
         NSArray *directoryContents = [[MPIUserDefaults standardUserDefaults] getKitConfigurations];
         for (NSDictionary *kitConfigurationDictionary in directoryContents) {
             MPKitConfiguration *kitConfiguration = [[MPKitConfiguration alloc] initWithDictionary:kitConfigurationDictionary];
-            if ([[kitConfiguration kitCode] isEqual:@(42)]){
+            if ([[kitConfiguration integrationId] isEqual:@(42)]){
                 XCTAssertEqualObjects(@"cool app key", kitConfiguration.configuration[@"appId"]);
             }
             
-            if ([[kitConfiguration kitCode] isEqual:@(312)]){
+            if ([[kitConfiguration integrationId] isEqual:@(312)]){
                 
                 XCTAssertEqualObjects(@"cool app key 2", kitConfiguration.configuration[@"appId"]);
             }
@@ -269,11 +271,11 @@
         directoryContents = [[MPIUserDefaults standardUserDefaults] getKitConfigurations];
         for (NSDictionary *kitConfigurationDictionary in directoryContents) {
             MPKitConfiguration *kitConfiguration = [[MPKitConfiguration alloc] initWithDictionary:kitConfigurationDictionary];
-            if ([[kitConfiguration kitCode] isEqual:@(42)]){
+            if ([[kitConfiguration integrationId] isEqual:@(42)]){
                 XCTAssertEqualObjects(@"cool app key", kitConfiguration.configuration[@"appId"]);
             }
             
-            XCTAssertFalse([[kitConfiguration kitCode] isEqual:@(312)]);
+            XCTAssertFalse([[kitConfiguration integrationId] isEqual:@(312)]);
         }
         
         [expectation fulfill];
@@ -291,31 +293,6 @@
     
     bracketConfig = @{@"hi":@(100),@"lo":@(0)};
     XCTAssertFalse([kitContainer isDisabledByBracketConfiguration:bracketConfig]);    
-}
-
-- (void)testConfigurationValidation {
-    NSDictionary *configuration = @{@"appKey":@"3141592"};
-    
-    NSDictionary *validatedConfiguration = [kitContainer validateAndTransformToSafeConfiguration:configuration];
-    XCTAssertEqual(configuration, validatedConfiguration, @"Should have been equal.");
-    
-    configuration = @{@"appKey":@"3141592",
-                      @"NullKey":[NSNull null]};
-    validatedConfiguration = [kitContainer validateAndTransformToSafeConfiguration:configuration];
-    XCTAssertNil(validatedConfiguration[@"NullKey"], @"Should have been nil.");
-    XCTAssertEqual(validatedConfiguration.count, 1, @"Incorrect count.");
-    
-    configuration = @{@"NullKey":[NSNull null]};
-    validatedConfiguration = [kitContainer validateAndTransformToSafeConfiguration:configuration];
-    XCTAssertNil(validatedConfiguration, @"Should have been nil.");
-    
-    configuration = @{};
-    validatedConfiguration = [kitContainer validateAndTransformToSafeConfiguration:configuration];
-    XCTAssertNil(validatedConfiguration, @"Should have been nil.");
-    
-    configuration = nil;
-    validatedConfiguration = [kitContainer validateAndTransformToSafeConfiguration:configuration];
-    XCTAssertNil(validatedConfiguration, @"Should have been nil.");
 }
 
 - (void)testValueTransformation {
@@ -419,16 +396,12 @@
     
     MPProduct *product = [[MPProduct alloc] initWithName:@"Sonic Screwdriver" sku:@"SNCDRV" quantity:@1 price:@3.14];
     MPCommerceEvent *commerceEvent = [[MPCommerceEvent alloc] initWithAction:MPCommerceEventActionPurchase product:product];
-    
-    void (^kitHandler)(id<MPKitProtocol>, MPKitFilter *, MPKitExecStatus **) = ^(id<MPKitProtocol> kit, MPKitFilter *kitFilter, MPKitExecStatus **execStatus) {
-    };
 
-    [kitContainer forwardCommerceEventCall:commerceEvent kitHandler:kitHandler];
+    [kitContainer forwardCommerceEventCall:commerceEvent];
     MPForwardQueueItem *forwardQueueItem = [kitContainer.forwardQueue firstObject];
     XCTAssertEqual(kitContainer.forwardQueue.count, 1, @"Should have been equal.");
     XCTAssertEqual(forwardQueueItem.queueItemType, MPQueueItemTypeEcommerce, @"Should have been equal.");
     XCTAssertEqualObjects(forwardQueueItem.commerceEvent, commerceEvent, @"Should have been equal.");
-    XCTAssertEqualObjects(forwardQueueItem.commerceEventCompletionHandler, kitHandler, @"Should have been equal.");
 
     kitContainer.kitsInitialized = YES;
     XCTAssertEqual(kitContainer.forwardQueue.count, 0, @"Should have been equal.");
@@ -443,15 +416,11 @@
     SEL selector = @selector(logEvent:);
     MPEvent *event = [[MPEvent alloc] initWithName:@"Time travel" type:MPEventTypeNavigation];
     
-    void (^kitHandler)(id<MPKitProtocol>, MPEvent *, MPKitExecStatus **) = ^(id<MPKitProtocol> kit, MPEvent *forwardEvent, MPKitExecStatus **execStatus) {
-    };
-    
-    [kitContainer forwardSDKCall:selector event:event messageType:MPMessageTypeEvent userInfo:nil kitHandler:kitHandler];
+    [kitContainer forwardSDKCall:selector event:event parameters:nil messageType:MPMessageTypeEvent userInfo:nil];
     MPForwardQueueItem *forwardQueueItem = [kitContainer.forwardQueue firstObject];
     XCTAssertEqual(kitContainer.forwardQueue.count, 1, @"Should have been equal.");
     XCTAssertEqual(forwardQueueItem.queueItemType, MPQueueItemTypeEvent, @"Should have been equal.");
     XCTAssertEqualObjects(forwardQueueItem.event, event, @"Should have been equal.");
-    XCTAssertEqualObjects(forwardQueueItem.eventCompletionHandler, kitHandler, @"Should have been equal.");
     
     kitContainer.kitsInitialized = YES;
     XCTAssertEqual(kitContainer.forwardQueue.count, 0, @"Should have been equal.");
@@ -465,9 +434,8 @@
     
     SEL selector = @selector(logEvent:);
     MPEvent *event = nil;
-    void (^kitHandler)(id<MPKitProtocol>, MPEvent *, MPKitExecStatus **) = nil;
     
-    [kitContainer forwardSDKCall:selector event:event messageType:MPMessageTypeEvent userInfo:nil kitHandler:kitHandler];
+    [kitContainer forwardSDKCall:selector event:event parameters:nil messageType:MPMessageTypeEvent userInfo:nil];
     MPForwardQueueItem *forwardQueueItem = [kitContainer.forwardQueue firstObject];
     XCTAssertEqual(kitContainer.forwardQueue.count, 0, @"Should have been equal.");
     XCTAssertNil(forwardQueueItem, @"Should have been nil.");
@@ -479,9 +447,6 @@
     
     kitContainer.kitsInitialized = NO;
     
-    void (^kitHandler)(id<MPKitProtocol>, MPForwardQueueParameters *, MPKitExecStatus **) = ^(id<MPKitProtocol> kit, MPForwardQueueParameters *forwardParameters, MPKitExecStatus **execStatus) {
-    };
-    
     MPForwardQueueParameters *queueParameters = [[MPForwardQueueParameters alloc] init];
     NSURL *url = [NSURL URLWithString:@"mparticle://baseurl?query"];
     [queueParameters addParameter:url];
@@ -489,15 +454,15 @@
     [queueParameters addParameter:options];
     
     [kitContainer forwardSDKCall:@selector(openURL:options:)
+                           event:nil
                       parameters:queueParameters
                      messageType:MPMessageTypeUnknown
-                      kitHandler:kitHandler];
+                        userInfo:nil];
     
     MPForwardQueueItem *forwardQueueItem = [kitContainer.forwardQueue firstObject];
     XCTAssertEqual(kitContainer.forwardQueue.count, 1);
     XCTAssertEqual(forwardQueueItem.queueItemType, MPQueueItemTypeGeneralPurpose);
     XCTAssertEqualObjects(forwardQueueItem.queueParameters, queueParameters);
-    XCTAssertEqualObjects(forwardQueueItem.generalPurposeCompletionHandler, kitHandler);
     
     kitContainer.kitsInitialized = YES;
     XCTAssertEqual(kitContainer.forwardQueue.count, 0, @"Should have been equal.");
@@ -542,17 +507,169 @@
         return NO;
     }] anyObject];
 
-    XCTestExpectation *expectation = [self expectationWithDescription:@"Filtering event type"];
-    [kitContainer filter:registeredKit
-                forEvent:event
-                selector:@selector(logEvent:)
-       completionHandler:^(MPKitFilter *kitFilter, BOOL finished) {
-           XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
-           XCTAssertTrue(kitFilter.shouldFilter, @"Filter should be signaling to filter event: %@", event);
-           XCTAssertNil(kitFilter.filteredAttributes, @"Filtered attributes should have been nil.");
-           [expectation fulfill];
-       }];
-    [self waitForExpectationsWithTimeout:1 handler:nil];
+    
+    MPKitFilter *kitFilter = [kitContainer filter:registeredKit forEvent:event selector:@selector(logEvent:)];
+    
+    XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
+    XCTAssertTrue(kitFilter.shouldFilter, @"Filter should be signaling to filter event: %@", event);
+    XCTAssertNil(kitFilter.filteredAttributes, @"Filtered attributes should have been nil.");
+}
+
+- (void)testForwardLoggedOutUser {
+    NSArray *configurations = @[
+                                @{
+                                    @"id":@(42),
+                                    @"as":@{
+                                            @"secretKey":@"MySecretKey",
+                                            @"sendTransactionData":@"true"
+                                            }                                    }
+                                ];
+    [kitContainer configureKits:nil];
+    [kitContainer configureKits:configurations];
+    
+    NSArray<id<MPExtensionKitProtocol>> *activeKits = [kitContainer activeKitsRegistry];
+    
+    XCTAssertEqual(activeKits.count, 1);
+    XCTAssertEqual(activeKits[0].code, @42);
+
+    
+    configurations = @[
+                                @{
+                                    @"id":@(42),
+                                    @"as":@{
+                                            @"secretKey":@"MySecretKey",
+                                            @"sendTransactionData":@"true"
+                                            },
+                                    @"eau":@true
+                                    }
+                                ];
+    
+    [kitContainer configureKits:nil];
+    [kitContainer configureKits:configurations];
+    
+    activeKits = [kitContainer activeKitsRegistry];
+    
+    XCTAssertEqual(activeKits.count, 0);
+}
+
+- (void)testForwardLoggedOutUserWithMultipleKits {
+    NSArray *configurations = @[
+                                @{
+                                    @"id":@(42),
+                                    @"as":@{
+                                            @"secretKey":@"MySecretKey",
+                                            @"sendTransactionData":@"true"
+                                            }
+                                    },
+                                @{
+                                    @"id":@314,
+                                    @"as":@{
+                                            @"secretKey":@"MySecretKey",
+                                            @"sendTransactionData":@"true"
+                                            },
+                                    @"eau":@false
+                                    }
+                                ];
+    
+    MPKitConfiguration *kitConfiguration = [[MPKitConfiguration alloc] initWithDictionary:configurations[1]];
+    [[kitContainer startKit:@314 configuration:kitConfiguration] start];
+
+    [kitContainer configureKits:nil];
+    [kitContainer configureKits:configurations];
+    
+    NSArray<id<MPExtensionKitProtocol>> *activeKits = [kitContainer activeKitsRegistry];
+    
+    XCTAssertEqual(activeKits.count, 2);
+    
+    configurations = @[
+                                @{
+                                    @"id":@(42),
+                                    @"as":@{
+                                            @"secretKey":@"MySecretKey",
+                                            @"sendTransactionData":@"true"
+                                            },
+                                    @"eau":@true
+                                    },
+                                @{
+                                    @"id":@314,
+                                    @"as":@{
+                                            @"secretKey":@"MySecretKey",
+                                            @"sendTransactionData":@"true"
+                                            },
+                                    @"eau":@false
+                                    }
+                                ];
+    
+    [kitContainer configureKits:nil];
+    [kitContainer configureKits:configurations];
+    
+    activeKits = [kitContainer activeKitsRegistry];
+    
+    XCTAssertEqual(activeKits.count, 1);
+    XCTAssertEqual(activeKits[0].code, @314);
+}
+
+- (void)testForwardLoggedInUserWithMultipleKits {
+    MParticleUser *currentUser = [MParticle sharedInstance].identity.currentUser;
+    currentUser.isLoggedIn = true;
+    
+    NSArray *configurations = @[
+                                @{
+                                    @"id":@(42),
+                                    @"as":@{
+                                            @"secretKey":@"MySecretKey",
+                                            @"sendTransactionData":@"true"
+                                            }
+                                    },
+                                @{
+                                    @"id":@314,
+                                    @"as":@{
+                                            @"secretKey":@"MySecretKey",
+                                            @"sendTransactionData":@"true"
+                                            },
+                                    @"eau":@false
+                                    }
+                                ];
+    
+    MPKitConfiguration *kitConfiguration = [[MPKitConfiguration alloc] initWithDictionary:configurations[1]];
+    [[kitContainer startKit:@314 configuration:kitConfiguration] start];
+    
+    [kitContainer configureKits:nil];
+    [kitContainer configureKits:configurations];
+    
+    NSArray<id<MPExtensionKitProtocol>> *activeKits = [kitContainer activeKitsRegistry];
+    
+    XCTAssertEqual(activeKits.count, 2);
+    XCTAssertTrue([activeKits[0].code integerValue] == 42 || [activeKits[0].code integerValue] == 314);
+    XCTAssertTrue([activeKits[1].code integerValue] == 42 || [activeKits[1].code integerValue] == 314);
+    
+    configurations = @[
+                       @{
+                           @"id":@(42),
+                           @"as":@{
+                                   @"secretKey":@"MySecretKey",
+                                   @"sendTransactionData":@"true"
+                                   },
+                           @"eau":@true
+                           },
+                       @{
+                           @"id":@314,
+                           @"as":@{
+                                   @"secretKey":@"MySecretKey",
+                                   @"sendTransactionData":@"true"
+                                   },
+                           @"eau":@false
+                           }
+                       ];
+    
+    [kitContainer configureKits:nil];
+    [kitContainer configureKits:configurations];
+    
+    activeKits = [kitContainer activeKitsRegistry];
+    
+    XCTAssertEqual(activeKits.count, 2);
+    XCTAssertTrue([activeKits[0].code integerValue] == 42 || [activeKits[0].code integerValue] == 314);
+    XCTAssertTrue([activeKits[1].code integerValue] == 42 || [activeKits[1].code integerValue] == 314);
 }
 
 - (void)testFilterMessageType {
@@ -594,17 +711,11 @@
         return NO;
     }] anyObject];
     
-    XCTestExpectation *expectation = [self expectationWithDescription:@"Filtering message type"];
-    [kitContainer filter:registeredKit
-                forEvent:event
-                selector:@selector(logEvent:)
-       completionHandler:^(MPKitFilter *kitFilter, BOOL finished) {
-           XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
-           XCTAssertTrue(kitFilter.shouldFilter, @"Filter should be signaling to filter event: %@", event);
-           XCTAssertNil(kitFilter.filteredAttributes, @"Filtered attributes should have been nil.");
-           [expectation fulfill];
-       }];
-    [self waitForExpectationsWithTimeout:1 handler:nil];
+    MPKitFilter *kitFilter = [kitContainer filter:registeredKit forEvent:event selector:@selector(logEvent:)];
+    
+    XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
+    XCTAssertTrue(kitFilter.shouldFilter, @"Filter should be signaling to filter event: %@", event);
+    XCTAssertNil(kitFilter.filteredAttributes, @"Filtered attributes should have been nil.");
 }
 
 - (void)testFilterEventTypeNavigation {
@@ -636,26 +747,15 @@
         return NO;
     }] anyObject];
     
-    XCTestExpectation *notFilteringExpectation = [self expectationWithDescription:@"Not filtering screen events by event type"];
-    [kitContainer filter:registeredKit
-                forEvent:event
-                selector:@selector(logScreen:)
-       completionHandler:^(MPKitFilter *kitFilter, BOOL finished) {
-           XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
-           XCTAssertFalse(kitFilter.shouldFilter, @"Event type filtering should not be taking place for screen events.");
-           [notFilteringExpectation fulfill];
-       }];
+    MPKitFilter *kitFilter = [kitContainer filter:registeredKit forEvent:event selector:@selector(logScreen:)];
     
-    XCTestExpectation *filteringExpectation = [self expectationWithDescription:@"Filtering non-screen events by event type"];
-    [kitContainer filter:registeredKit
-                forEvent:event
-                selector:@selector(logEvent:)
-       completionHandler:^(MPKitFilter *kitFilter, BOOL finished) {
-           XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
-           XCTAssertTrue(kitFilter.shouldFilter, @"Non-screen event should have been filtered by event type");
-           [filteringExpectation fulfill];
-       }];
-    [self waitForExpectationsWithTimeout:1 handler:nil];
+    XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
+    XCTAssertFalse(kitFilter.shouldFilter, @"Event type filtering should not be taking place for screen events.");
+    
+    kitFilter = [kitContainer filter:registeredKit forEvent:event selector:@selector(logEvent:)];
+    
+    XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
+    XCTAssertTrue(kitFilter.shouldFilter, @"Non-screen event should have been filtered by event type");
 }
 
 - (void)testFilterEventNameAndAttributes {
@@ -692,15 +792,10 @@
         return NO;
     }] anyObject];
     
-    XCTestExpectation *expectation1 = [self expectationWithDescription:@"Filtering event name and attributes"];
-    [kitContainer filter:registeredKit
-                forEvent:event
-                selector:@selector(logEvent:)
-       completionHandler:^(MPKitFilter *kitFilter, BOOL finished) {
-           XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
-           XCTAssertTrue(kitFilter.shouldFilter, @"Filter should be signaling to filter event: %@", event);
-           [expectation1 fulfill];
-       }];
+    MPKitFilter *kitFilter = [kitContainer filter:registeredKit forEvent:event selector:@selector(logEvent:)];
+    
+    XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
+    XCTAssertTrue(kitFilter.shouldFilter, @"Filter should be signaling to filter event: %@", event);
     
     configurations = @[
                        @{
@@ -710,7 +805,7 @@
                                    @"sendTransactionData":@"true"
                                    },
                            @"hs":@{
-                                   @"ea":@{@"1152562650":@0}
+                                   @"ea":@{@"484927002":@0}
                                    }
                            }
                        ];
@@ -724,18 +819,11 @@
                    @"modality":@"sprinting"};
     event.category = @"Olympic Games";
     
-    XCTestExpectation *expectation2 = [self expectationWithDescription:@"Filtering event name and attributes"];
-    [kitContainer filter:registeredKit
-                forEvent:event
-                selector:@selector(logEvent:)
-       completionHandler:^(MPKitFilter *kitFilter, BOOL finished) {
-           XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
-           XCTAssertTrue(kitFilter.shouldFilter, @"Filter should be signaling to filter event: %@", event);
-           XCTAssertEqual(kitFilter.filteredAttributes.count, 1, @"There should be only one attribute in the list.");
-           XCTAssertEqualObjects(kitFilter.filteredAttributes[@"modality"], @"sprinting", @"Not filtering the correct attribute.");
-           [expectation2 fulfill];
-       }];
-    [self waitForExpectationsWithTimeout:1 handler:nil];
+    kitFilter = [kitContainer filter:registeredKit forEvent:event selector:@selector(logEvent:)];
+    
+    XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
+    XCTAssertEqual(kitFilter.filteredAttributes.count, 1, @"There should be only one attribute in the list.");
+    XCTAssertEqualObjects(kitFilter.filteredAttributes[@"modality"], @"sprinting", @"Not filtering the correct attribute.");
 }
 
 - (void)testFilterForSelector {
@@ -825,9 +913,7 @@
 
 }
 
-- (void)testNotForwardUserAttributeList {
-    XCTestExpectation *expectation = [self expectationWithDescription:@"Not forwarding user attribute list"];
-    
+- (void)testNotForwardUserAttributeList {    
     NSArray *configurations = @[
                                 @{
                                     @"id":@(42),
@@ -853,12 +939,6 @@
                       kitHandler:^(id<MPKitProtocol> _Nonnull kit, MPKitConfiguration *kitConfig) {
                           NSAssert(false, @"This line should never be executed.");
                       }];
-    
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [expectation fulfill];
-    });
-    
-    [self waitForExpectationsWithTimeout:1.1 handler:nil];
 }
 
 - (void)testFilterForUserAttributes {
@@ -997,11 +1077,9 @@
     commerceEvent.transactionAttributes = transactionAttributes;
     XCTAssertNotNil(commerceEvent.transactionAttributes, @"Transaction attributes should not have been nil.");
 
-    [kitContainer filter:registeredKit
-        forCommerceEvent:commerceEvent
-       completionHandler:^(MPKitFilter *kitFilter, BOOL finished) {
-           XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
-       }];
+    MPKitFilter *kitFilter = [kitContainer filter:registeredKit forCommerceEvent:commerceEvent];
+
+    XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
 }
 
 - (void)testFilterCommerceEvent_EntityType {
@@ -1062,11 +1140,9 @@
     commerceEvent.transactionAttributes = transactionAttributes;
     XCTAssertNotNil(commerceEvent.transactionAttributes, @"Transaction attributes should not have been nil.");
 
-    [kitContainer filter:registeredKit
-        forCommerceEvent:commerceEvent
-       completionHandler:^(MPKitFilter *kitFilter, BOOL finished) {
-           XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
-       }];
+    MPKitFilter *kitFilter = [kitContainer filter:registeredKit forCommerceEvent:commerceEvent];
+
+    XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
 }
 
 - (void)testFilterCommerceEvent_Other {
@@ -1129,16 +1205,12 @@
     commerceEvent.transactionAttributes = transactionAttributes;
     XCTAssertNotNil(commerceEvent.transactionAttributes, @"Transaction attributes should not have been nil.");
     
-    [kitContainer filter:registeredKit
-        forCommerceEvent:commerceEvent
-       completionHandler:^(MPKitFilter *kitFilter, BOOL finished) {
-           XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
-       }];
+    MPKitFilter *kitFilter = [kitContainer filter:registeredKit forCommerceEvent:commerceEvent];
+
+    XCTAssertNotNil(kitFilter, @"Filter should not have been nil.");
 }
 
 - (void)testFilterCommerceEvent_TransactionAttributes {
-    XCTestExpectation *expectation = [self expectationWithDescription:@"Transaction attributes"];
-    
     NSArray *configurations = @[
                                 @{
                                     @"id":@(42),
@@ -1195,22 +1267,17 @@
     commerceEvent.transactionAttributes = transactionAttributes;
     XCTAssertNotNil(commerceEvent.transactionAttributes);
     
-    [kitContainer filter:registeredKit
-        forCommerceEvent:commerceEvent
-       completionHandler:^(MPKitFilter *kitFilter, BOOL finished) {
-           XCTAssertNotNil(kitFilter);
-           XCTAssertNotNil(kitFilter.forwardCommerceEvent);
-           XCTAssertNotNil(kitFilter.forwardCommerceEvent.transactionAttributes);
-           XCTAssertNil(kitFilter.forwardCommerceEvent.transactionAttributes.affiliation);
-           XCTAssertNil(kitFilter.forwardCommerceEvent.transactionAttributes.revenue);
-           XCTAssertEqualObjects(kitFilter.forwardCommerceEvent.transactionAttributes.shipping, @3);
-           XCTAssertEqualObjects(kitFilter.forwardCommerceEvent.transactionAttributes.tax, @4.56);
-           XCTAssertEqualObjects(kitFilter.forwardCommerceEvent.transactionAttributes.transactionId, @"42");
-           
-           [expectation fulfill];
-       }];
+    MPKitFilter *kitFilter = [kitContainer filter:registeredKit forCommerceEvent:commerceEvent];
     
-    [self waitForExpectationsWithTimeout:1 handler:nil];
+    XCTAssertNotNil(kitFilter);
+    XCTAssertNotNil(kitFilter.forwardCommerceEvent);
+    XCTAssertNotNil(kitFilter.forwardCommerceEvent.transactionAttributes);
+    XCTAssertNil(kitFilter.forwardCommerceEvent.transactionAttributes.affiliation);
+    XCTAssertNil(kitFilter.forwardCommerceEvent.transactionAttributes.revenue);
+    XCTAssertEqualObjects(kitFilter.forwardCommerceEvent.transactionAttributes.shipping, @3);
+    XCTAssertEqualObjects(kitFilter.forwardCommerceEvent.transactionAttributes.tax, @4.56);
+    XCTAssertEqualObjects(kitFilter.forwardCommerceEvent.transactionAttributes.transactionId, @"42");
+    
 }
 
 - (void)testForwardAppsFlyerEvent {
@@ -1316,18 +1383,14 @@
     MPEvent *event = [[MPEvent alloc] initWithName:@"subscription_success" type:MPEventTypeTransaction];
     event.info = @{@"plan":@"premium", @"plan_color":@"gold", @"boolean":@YES};
     
-    [self->kitContainer forwardSDKCall:@selector(logEvent:)
-                           event:event
-                     messageType:MPMessageTypeEvent
-                        userInfo:nil
-                      kitHandler:^(id<MPKitProtocol> _Nonnull kit, MPEvent * _Nullable forwardEvent, MPKitExecStatus *__autoreleasing _Nonnull * _Nonnull execStatus) {
-                          if ([[[kit class] kitCode] isEqualToNumber:@(MPKitInstanceAppsFlyer)]) {
-                              XCTAssertNotNil(forwardEvent);
-                              XCTAssertEqualObjects(forwardEvent.name, @"new_premium_subscriber");
-                              XCTAssertNotNil(forwardEvent.info);
-                              XCTAssertEqual(forwardEvent.info.count, 3);
-                          }
-                      }];
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegister forEvent:event selector:@selector(logEvent:)];
+
+    MPEvent *forwardEvent = kitFilter.forwardEvent;
+    XCTAssertNotNil(forwardEvent);
+    XCTAssertEqualObjects(forwardEvent.name, @"new_premium_subscriber");
+    XCTAssertNotNil(forwardEvent.info);
+    XCTAssertEqual(forwardEvent.info.count, 3);
 }
 
 - (void)testForwardAppsFlyerCommerceEvent {
@@ -1486,17 +1549,15 @@
     transactionAttributes.revenue = @18;
     transactionAttributes.transactionId = @"42";
     commerceEvent.transactionAttributes = transactionAttributes;
-
-    [self->kitContainer forwardCommerceEventCall:commerceEvent
-                                kitHandler:^(id<MPKitProtocol> _Nonnull kit, MPKitFilter * _Nonnull kitFilter, MPKitExecStatus *__autoreleasing _Nonnull * _Nonnull execStatus) {
-                                    if ([[[kit class] kitCode] isEqualToNumber:@(MPKitInstanceAppsFlyer)]) {
-                                        MPEvent *event = kitFilter.forwardEvent;
-                                        XCTAssertEqualObjects(event.info[@"af_quantity"], @"1");
-                                        XCTAssertEqualObjects(event.info[@"af_content_id"], @"OutATime");
-                                        XCTAssertEqualObjects(event.info[@"af_content_type"], @"Time Machine");
-                                        XCTAssertEqualObjects(event.name, @"af_add_to_cart");
-                                    }
-                                }];
+    
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegister forCommerceEvent:commerceEvent];
+    
+    MPEvent *event = kitFilter.forwardEvent;
+    XCTAssertEqualObjects(event.info[@"af_quantity"], @"1");
+    XCTAssertEqualObjects(event.info[@"af_content_id"], @"OutATime");
+    XCTAssertEqualObjects(event.info[@"af_content_type"], @"Time Machine");
+    XCTAssertEqualObjects(event.name, @"af_add_to_cart");
 }
 
 - (void)testMatchArrayProjection {
@@ -1578,25 +1639,22 @@
 
     MPEvent *event = [[MPEvent alloc] initWithName:@"SUBSCRIPTION_END" type:MPEventTypeTransaction];
     event.info = @{@"plan_id":@"3", @"outcome":@"new_subscription"};
-    __block NSMutableArray<NSString *> *foundEventNames = [NSMutableArray arrayWithCapacity:2];
+    NSMutableArray<NSString *> *foundEventNames = [NSMutableArray arrayWithCapacity:2];
 
-        [self->kitContainer forwardSDKCall:@selector(logEvent:)
-                               event:event
-                         messageType:MPMessageTypeEvent
-                            userInfo:nil
-                          kitHandler:^(id<MPKitProtocol> _Nonnull kit, MPEvent * _Nullable forwardEvent, MPKitExecStatus *__autoreleasing _Nonnull * _Nonnull execStatus) {
-                              if ([[[kit class] kitCode] isEqualToNumber:@(MPKitInstanceAppsFlyer)]) {
-                                  XCTAssertNotNil(forwardEvent);
-                                  XCTAssertNotNil(forwardEvent.info);
-                                  XCTAssertEqual(forwardEvent.info.count, 2);
-                                  
-                                  [foundEventNames addObject:forwardEvent.name];
-                                  
-                                  if (foundEventNames.count == 2) {
-                                      XCTAssertTrue([foundEventNames containsObject:@"X_NEW_SUBSCRIPTION"]);
-                                      XCTAssertTrue([foundEventNames containsObject:@"X_NEW_NOAH_SUBSCRIPTION"]);
-                                  }
-                              }}];
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegister forEvent:event selector:@selector(logEvent:)];
+
+    MPEvent *forwardEvent = kitFilter.forwardEvent;
+    XCTAssertNotNil(forwardEvent);
+    XCTAssertNotNil(forwardEvent.info);
+    XCTAssertEqual(forwardEvent.info.count, 2);
+    
+    [foundEventNames addObject:forwardEvent.name];
+    
+    if (foundEventNames.count == 2) {
+        XCTAssertTrue([foundEventNames containsObject:@"X_NEW_SUBSCRIPTION"]);
+        XCTAssertTrue([foundEventNames containsObject:@"X_NEW_NOAH_SUBSCRIPTION"]);
+    }
 }
 
 - (void)testNonMatchingMatchArrayProjection {
@@ -1655,17 +1713,13 @@
     MPEvent *event = [[MPEvent alloc] initWithName:@"SUBSCRIPTION_END" type:MPEventTypeTransaction];
     event.info = @{@"plan_id":@"3", @"outcome":@"new_subscription", @"gender":@"female"};
     
-    [self->kitContainer forwardSDKCall:@selector(logEvent:)
-                           event:event
-                     messageType:MPMessageTypeEvent
-                        userInfo:nil
-                      kitHandler:^(id<MPKitProtocol> _Nonnull kit, MPEvent * _Nullable forwardEvent, MPKitExecStatus *__autoreleasing _Nonnull * _Nonnull execStatus) {
-                          if ([[[kit class] kitCode] isEqualToNumber:@(MPKitInstanceAppsFlyer)]) {
-                              XCTAssertNotNil(forwardEvent);
-                              XCTAssertNotEqualObjects(forwardEvent.name, @"X_NEW_MALE_SUBSCRIPTION");
-                              XCTAssertEqualObjects(forwardEvent.name, @"SUBSCRIPTION_END");
-                          }
-                      }];
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegister forEvent:event selector:@selector(logEvent:)];
+    
+    MPEvent *forwardEvent = kitFilter.forwardEvent;
+    XCTAssertNotNil(forwardEvent);
+    XCTAssertNotEqualObjects(forwardEvent.name, @"X_NEW_MALE_SUBSCRIPTION");
+    XCTAssertEqualObjects(forwardEvent.name, @"SUBSCRIPTION_END");
 }
 
 - (void)testNonMatchingAttributeArrayProjection {
@@ -1715,17 +1769,13 @@
     MPEvent *event = [[MPEvent alloc] initWithName:@"SUBSCRIPTION_END" type:MPEventTypeTransaction];
     event.info = @{@"outcome":@"not_new_subscription"};
     
-        [self->kitContainer forwardSDKCall:@selector(logEvent:)
-                               event:event
-                         messageType:MPMessageTypeEvent
-                            userInfo:nil
-                          kitHandler:^(id<MPKitProtocol> _Nonnull kit, MPEvent * _Nullable forwardEvent, MPKitExecStatus *__autoreleasing _Nonnull * _Nonnull execStatus) {
-                              if ([[[kit class] kitCode] isEqualToNumber:@(MPKitInstanceAppsFlyer)]) {
-                                  XCTAssertNotNil(forwardEvent);
-                                  XCTAssertNotEqualObjects(forwardEvent.name, @"X_NEW_SUBSCRIPTION");
-                                  XCTAssertEqualObjects(forwardEvent.name, @"SUBSCRIPTION_END");
-                              }
-                          }];
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegister forEvent:event selector:@selector(logEvent:)];
+    
+    MPEvent *forwardEvent = kitFilter.forwardEvent;
+    XCTAssertNotNil(forwardEvent);
+    XCTAssertNotEqualObjects(forwardEvent.name, @"X_NEW_SUBSCRIPTION");
+    XCTAssertEqualObjects(forwardEvent.name, @"SUBSCRIPTION_END");
 }
 
 - (void)testHashProjection {
@@ -1779,19 +1829,15 @@
     MPEvent *event = [[MPEvent alloc] initWithName:@"test_string" type:MPEventTypeOther];
     event.info = @{@"plan":@"premium"};
     
-        [self->kitContainer forwardSDKCall:@selector(logEvent:)
-                               event:event
-                         messageType:MPMessageTypeEvent
-                            userInfo:nil
-                          kitHandler:^(id<MPKitProtocol> _Nonnull kit, MPEvent * _Nullable forwardEvent, MPKitExecStatus *__autoreleasing _Nonnull * _Nonnull execStatus) {
-                              if ([[[kit class] kitCode] isEqualToNumber:@(MPKitInstanceAppsFlyer)]) {
-                                  XCTAssertNotNil(forwardEvent);
-                                  XCTAssertEqualObjects(forwardEvent.name, @"af_add_payment_info");
-                                  XCTAssertNotNil(forwardEvent.info);
-                                  XCTAssertEqual(forwardEvent.info.count, 2);
-                                  XCTAssertEqualObjects(forwardEvent.info[@"af_success"], @"True");
-                              }
-                          }];
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegister forEvent:event selector:@selector(logEvent:)];
+    
+    MPEvent *forwardEvent = kitFilter.forwardEvent;
+    XCTAssertNotNil(forwardEvent);
+    XCTAssertEqualObjects(forwardEvent.name, @"af_add_payment_info");
+    XCTAssertNotNil(forwardEvent.info);
+    XCTAssertEqual(forwardEvent.info.count, 2);
+    XCTAssertEqualObjects(forwardEvent.info[@"af_success"], @"True");
 }
 
 - (void)testAttributeHashProjection {
@@ -1845,32 +1891,20 @@
     MPEvent *event = [[MPEvent alloc] initWithName:@"test_string" type:MPEventTypeOther];
     event.info = @{@"test_description":@"this is a description"};
     
-        [self->kitContainer forwardSDKCall:@selector(logEvent:)
-                               event:event
-                         messageType:MPMessageTypeEvent
-                            userInfo:nil
-                          kitHandler:^(id<MPKitProtocol> _Nonnull kit, MPEvent * _Nullable forwardEvent, MPKitExecStatus *__autoreleasing _Nonnull * _Nonnull execStatus) {
-                              if ([[[kit class] kitCode] isEqualToNumber:@(MPKitInstanceAppsFlyer)]) {
-                                  XCTAssertNotNil(forwardEvent);
-                                  XCTAssertEqualObjects(forwardEvent.name, @"af_achievement_unlocked");
-                                  XCTAssertNotNil(forwardEvent.info);
-                                  XCTAssertEqual(forwardEvent.info.count, 1);
-                                  XCTAssertEqualObjects(forwardEvent.info[@"af_description"], @"this is a description");
-                              }
-                          }];
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegister forEvent:event selector:@selector(logEvent:)];
+    
+    MPEvent *forwardEvent = kitFilter.forwardEvent;
+    XCTAssertNotNil(forwardEvent);
+    XCTAssertEqualObjects(forwardEvent.name, @"af_achievement_unlocked");
+    XCTAssertNotNil(forwardEvent.info);
+    XCTAssertEqual(forwardEvent.info.count, 1);
+    XCTAssertEqualObjects(forwardEvent.info[@"af_description"], @"this is a description");
 }
 
-- (void)testAllocationAndDeallocation {
-    XCTestExpectation *expectation = [self expectationWithDescription:@"Allocation and deallocation"];
-    
+- (void)testAllocation {    
     MPKitContainer *localKitContainer = [[MPKitContainer alloc] init];
     XCTAssertNotNil(localKitContainer);
-    
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [expectation fulfill];
-    });
-    
-    [self waitForExpectationsWithTimeout:1.01 handler:nil];
 }
 
 - (void)testExpandedCommerceEventProjection {
@@ -1946,12 +1980,10 @@
     MPProduct *product = [[MPProduct alloc] initWithName:@"product name" sku:@"product sku" quantity:@1 price:@45];
     MPCommerceEvent *commerceEvent = [[MPCommerceEvent alloc] initWithAction:MPCommerceEventActionViewDetail product:product];
     
-
-        [self->kitContainer forwardCommerceEventCall:commerceEvent kitHandler:^(id<MPKitProtocol> _Nonnull kit, MPKitFilter * _Nonnull kitFilter, MPKitExecStatus *__autoreleasing  _Nonnull * _Nonnull execStatus) {
-            if ([[[kit class] kitCode] isEqualToNumber:@(MPKitInstanceAppsFlyer)]) {
-                XCTAssertEqualObjects(kitFilter.forwardEvent.name, @"af_content_view");
-            }
-        }];
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegister forCommerceEvent:commerceEvent];
+    
+    XCTAssertEqualObjects(kitFilter.forwardEvent.name, @"af_content_view");
 }
 
 - (void)testShouldDelayUploadMaxTime {
@@ -1998,13 +2030,100 @@
     [MPPersistenceController setConsentState:state forMpid:[MPPersistenceController mpId]];
     MParticle.sharedInstance.identity.currentUser.consentState = state;
     
-    BOOL isDisabled = [[MPKitContainer sharedInstance] isDisabledByConsentKitFilter:filter];
+    BOOL isDisabled = [[MParticle sharedInstance].kitContainer isDisabledByConsentKitFilter:filter];
     XCTAssertFalse(isDisabled);
     
     filter.shouldIncludeOnMatch = NO;
-    isDisabled = [[MPKitContainer sharedInstance] isDisabledByConsentKitFilter:filter];
+    isDisabled = [[MParticle sharedInstance].kitContainer isDisabledByConsentKitFilter:filter];
     XCTAssertTrue(isDisabled);
     
 }
+
+- (void)testInitializeKitsWhenNilSupportedKits {
+    MPKitContainer *kitContainer = [[MPKitContainer alloc] init];
+    MPKitContainer *mockKitContainer = OCMPartialMock(kitContainer);
+    [[[(id)mockKitContainer stub] andReturn:nil] supportedKits];
+    [mockKitContainer initializeKits];
+    XCTAssertTrue(mockKitContainer.kitsInitialized);
+}
+
+- (void)testInitializeKitsWhenEmptySupportedKits {
+    MPKitContainer *kitContainer = [[MPKitContainer alloc] init];
+    MPKitContainer *mockKitContainer = OCMPartialMock(kitContainer);
+    [[[(id)mockKitContainer stub] andReturn: @[] ] supportedKits];
+    [mockKitContainer initializeKits];
+    XCTAssertTrue(mockKitContainer.kitsInitialized);
+}
+
+- (void)testInitializeKitsWhenNonemptySupportedKits {
+    MPKitContainer *kitContainer = [[MPKitContainer alloc] init];
+    MPKitContainer *mockKitContainer = OCMPartialMock(kitContainer);
+    [[[(id)mockKitContainer stub] andReturn: @[@123] ] supportedKits];
+    [mockKitContainer initializeKits];
+    XCTAssertFalse(mockKitContainer.kitsInitialized);
+}
+
+#if TARGET_OS_IOS == 1
+- (void)testAttemptToLogEventToKit {
+    MPKitContainer *localKitContainer = [[MPKitContainer alloc] init];
+    
+    MPEvent *event = [[MPEvent alloc] initWithName:@"test_string" type:MPEventTypeOther];
+    event.info = @{@"plan":@"premium"};
+    
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    id kitWrapperMock = OCMProtocolMock(@protocol(MPKitProtocol));
+    id kitRegisterMock = OCMPartialMock(kitRegister);
+    OCMStub([kitRegisterMock wrapperInstance]).andReturn(kitWrapperMock);
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegisterMock forEvent:event selector:@selector(logEvent:)];
+    
+    [(id <MPKitProtocol>)[kitWrapperMock expect] logEvent:OCMOCK_ANY];
+
+    [localKitContainer attemptToLogEventToKit:kitRegister kitFilter:kitFilter selector:@selector(logEvent:) parameters:nil messageType:MPMessageTypeEvent userInfo:[[NSDictionary alloc] init]];
+    
+    [kitWrapperMock verifyWithDelay:5.0];
+    [kitWrapperMock stopMocking];
+    [kitRegisterMock stopMocking];
+}
+
+- (void)testAttemptToSurveyToKit {
+    MPKitContainer *localKitContainer = [[MPKitContainer alloc] init];
+    
+    MPForwardQueueParameters *queueParameters = [[MPForwardQueueParameters alloc] init];
+    NSURL *url = [NSURL URLWithString:@"mparticle://baseurl?query"];
+    [queueParameters addParameter:url];
+    NSDictionary *options = @{@"key":@"val"};
+    [queueParameters addParameter:options];
+    
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    id kitWrapperMock = OCMProtocolMock(@protocol(MPKitProtocol));
+    id kitRegisterMock = OCMPartialMock(kitRegister);
+    OCMStub([kitRegisterMock wrapperInstance]).andReturn(kitWrapperMock);
+    
+    [(id <MPKitProtocol>)[kitWrapperMock expect] surveyURLWithUserAttributes:OCMOCK_ANY];
+    
+    [localKitContainer attemptToLogEventToKit:kitRegister kitFilter:nil selector:@selector(surveyURLWithUserAttributes:) parameters:queueParameters messageType:MPMessageTypeUnknown userInfo:[[NSDictionary alloc] init]];
+    
+    [kitWrapperMock verifyWithDelay:5.0];
+    [kitWrapperMock stopMocking];
+    [kitRegisterMock stopMocking];
+}
+
+- (void)testAttemptToShouldDelayEventToKit {
+    MPKitContainer *localKitContainer = [[MPKitContainer alloc] init];
+    
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    id kitWrapperMock = OCMProtocolMock(@protocol(MPKitProtocol));
+    id kitRegisterMock = OCMPartialMock(kitRegister);
+    OCMStub([kitRegisterMock wrapperInstance]).andReturn(kitWrapperMock);
+    
+    [(id <MPKitProtocol>)[kitWrapperMock expect] shouldDelayMParticleUpload];
+    
+    [localKitContainer attemptToLogEventToKit:kitRegister kitFilter:nil selector:@selector(shouldDelayMParticleUpload) parameters:nil messageType:MPMessageTypeUnknown userInfo:[[NSDictionary alloc] init]];
+    
+    [kitWrapperMock verifyWithDelay:5.0];
+    [kitWrapperMock stopMocking];
+    [kitRegisterMock stopMocking];
+}
+#endif
 
 @end

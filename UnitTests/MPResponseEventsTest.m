@@ -3,15 +3,25 @@
 #import "MPStateMachine.h"
 #import "MPConsumerInfo.h"
 #import "MPPersistenceController.h"
+#import "MPBaseTestCase.h"
+#import "MParticle.h"
 
-@interface MPResponseEventsTest : XCTestCase
-//- (BOOL)areEqual:(NSDictionary *)cookies1 cookies2: (NSArray<MPCookie *> *)cookies2;
+@interface MParticle ()
+
+@property (nonatomic, strong) MPStateMachine *stateMachine;
+
+@end
+
+@interface MPResponseEventsTest : MPBaseTestCase
+
 @end
 
 @implementation MPResponseEventsTest
 
 - (void)setUp {
     [super setUp];
+    
+    [MParticle sharedInstance].stateMachine = [[MPStateMachine alloc] init];
 }
 
 - (void)tearDown {
@@ -19,12 +29,11 @@
 }
 
 - (void)testParseConfiguration {
-    MPStateMachine *stateMachine = [MPStateMachine sharedInstance];
-//    XCTAssertNil(stateMachine.consumerInfo.mpId);
+    MPStateMachine *stateMachine = [MParticle sharedInstance].stateMachine;
     
     NSNumber *originalMpId = @10;
     NSString *originalDas = @"aaaaaaaaa";
-//    NSString *originalCookies = @"{\"uid\":{\"c\":\"u=-1983370217984460071&cr=4211576&lbri=11111111-2222-3333-4444-5555555555&g=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeee&ls=4211576&lbe=4211576\",\"e\":\"2100-01-01T1:0:00.000000Z\"},\"rpl\":{\"c\":\"-1111111111=2222222\",\"e\":\"2100-01-01T1:00:00.000000Z\"}}"
+    
     NSString *cookie1Name = @"uid";
     NSDictionary *cookie1Body = @{ @"c":@"u=-0000000000000000000&cr=4211576&lbri=11111111-2222-3333-4444-5555555555&g=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeee&ls=4211576&lbe=4211576",
                               @"e":@"2100-01-01T01:00:00.000000Z"};

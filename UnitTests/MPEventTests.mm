@@ -9,15 +9,17 @@
 #import "MPPersistenceController.h"
 #import "MParticle.h"
 #import "MPBackendController.h"
+#import "MPBaseTestCase.h"
 
 #pragma mark - MParticle+Tests category
-@interface MParticle(Tests)
+@interface MParticle (Tests)
 
 @property (nonatomic, strong, nonnull) MPBackendController *backendController;
+@property (nonatomic, strong) MPStateMachine *stateMachine;
 
 @end
 
-@interface MPEventTests : XCTestCase
+@interface MPEventTests : MPBaseTestCase
 
 @end
 
@@ -25,6 +27,8 @@
 
 - (void)setUp {
     [super setUp];
+    
+    [MParticle sharedInstance].stateMachine = [[MPStateMachine alloc] init];
 }
 
 - (void)tearDown {
@@ -72,7 +76,10 @@
     XCTAssertNotEqualObjects(copyEvent, event, @"Copied event object should have been different.");
 
     XCTAssertNotNil(event.category, @"Should not have been nil.");
-    event.category = @"Bacon ipsum dolor amet mollit reprehenderit occaecat shankle officia fatback, enim corned beef ham sunt adipisicing swine. Frankfurter duis ground round shoulder nostrud do jowl ea adipisicing exercitation fugiat. Tempor consectetur chicken anim pork belly pancetta et. Venison deserunt cillum sed aliqua ipsum landjaeger rump et qui.";
+    id mock = [OCMockObject mockForClass:[NSString class]];
+    OCMStub([mock length]).andReturn(LIMIT_ATTR_VALUE_LENGTH+1);
+    event.category = mock;
+    
     XCTAssertNil(event.category, @"Should have been nil.");
     
     XCTAssertNotNil(event.info, @"Should not have been nil.");
@@ -89,26 +96,28 @@
     
     [event beginTiming];
     
-    unsigned int sleepTimer = 1;
-    sleep(sleepTimer);
+    NSTimeInterval sleepTimer = 0.002;
+    double value = sleepTimer*1000000.0;
+    usleep(value);
     
     [event endTiming];
     
-    XCTAssertNotNil(event.startTime);
-    XCTAssertNotNil(event.endTime);
-    double referenceDuration = (sleepTimer * 1000.0 - 1.0);
-    XCTAssertGreaterThan([event.duration doubleValue], referenceDuration);
+    NSTimeInterval secondsElapsed = [event.endTime timeIntervalSince1970] - [event.startTime timeIntervalSince1970];
+    NSNumber *duration = @(trunc((secondsElapsed) * 1000));
+    XCTAssertNotEqualObjects(duration, @0);
+    XCTAssertEqualObjects(duration, event.duration);
 }
 
 - (void)testInvalidNames {
-    NSString *longName = @"The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog.";
-    
     NSString *nilName = nil;
     
     MPEvent *event = [[MPEvent alloc] initWithName:nilName type:MPEventTypeOther];
     XCTAssertNil(event, @"Event cannot be created with a nil name.");
     
-    event = [[MPEvent alloc] initWithName:longName type:MPEventTypeOther];
+    id mockLongName = [OCMockObject mockForClass:[NSString class]];
+    OCMStub([mockLongName length]).andReturn(LIMIT_ATTR_KEY_LENGTH+1);
+    
+    event = [[MPEvent alloc] initWithName:mockLongName type:MPEventTypeOther];
     XCTAssertNil(event, @"Event cannot be created with a name longer than 100 characters.");
     
     event = [[MPEvent alloc] initWithName:@"" type:MPEventTypeOther];
@@ -121,7 +130,7 @@
     event.name = @"";
     XCTAssertEqualObjects(event.name, @"Dino", @"Cannot set an empty name.");
     
-    event.name = longName;
+    event.name = mockLongName;
     XCTAssertEqualObjects(event.name, @"Dino", @"Cannot set an event name longer than 100 characters.");
 }
 
@@ -138,7 +147,7 @@
 
 - (void)testDictionaryRepresentation {
     MPSession *session = [[MPSession alloc] initWithStartTime:[[NSDate date] timeIntervalSince1970] userId:[MPPersistenceController mpId]];
-    MPStateMachine *stateMachine = [MPStateMachine sharedInstance];
+    MPStateMachine *stateMachine = [MParticle sharedInstance].stateMachine;
     stateMachine.currentSession = session;
     
     NSNumber *eventDuration = @2;
@@ -181,6 +190,24 @@
     XCTAssertNil(dictionaryRepresentation[kMPEventLength], @"Length should have been nil.");
     XCTAssertNil(dictionaryRepresentation[kMPEventCounterKey], @"Counter should have been nil for screen events.");
     XCTAssertEqualObjects(dictionaryRepresentation[kMPAttributesKey], event.info, @"Attributes are not being set correctly.");
+}
+
+- (void)testSetEventAttributes {
+    MPEvent *event = [[MPEvent alloc] initWithName:@"foo" type:MPEventTypeNavigation];
+    XCTAssertNil(event.info);
+    id mockLongValue = [OCMockObject mockForClass:[NSString class]];
+    OCMStub([mockLongValue length]).andReturn(LIMIT_ATTR_VALUE_LENGTH); //just short enough
+    event.info = @{@"foo-attribute-key":mockLongValue};
+    XCTAssertNotNil(event.info);
+}
+
+- (void)testSetLongEventAttributes {
+    MPEvent *event = [[MPEvent alloc] initWithName:@"foo" type:MPEventTypeNavigation];
+    XCTAssertNil(event.info);
+    id mockLongValue = [OCMockObject mockForClass:[NSString class]];
+    OCMStub([mockLongValue length]).andReturn(LIMIT_ATTR_VALUE_LENGTH+1); //just a bit too long
+    event.info = @{@"foo-attribute-key":mockLongValue};
+    XCTAssertNil(event.info);
 }
 
 - (void)testScreenDictionaryRepresentation {
@@ -315,16 +342,24 @@
                        @"user response": @"no"
                        };
     
-    [[MParticle sharedInstance] processWebViewLogEvent: oddURL];
-    
-    OCMVerify([mockBackendController logEvent:[OCMArg checkWithBlock:^BOOL(id value) {
+    [[[mockBackendController expect] ignoringNonObjectArgs] logEvent:[OCMArg checkWithBlock:^BOOL(id value) {
         MPEvent *returnedEvent = ((MPEvent *)value);
         XCTAssertEqualObjects(returnedEvent.name, testEvent.name);
         XCTAssertEqual(returnedEvent.type, testEvent.type);
         XCTAssertEqualObjects(returnedEvent.info, testEvent.info);
+        
         return YES;
     }]
-                            completionHandler:[OCMArg any]]);
+                                                   completionHandler:[OCMArg any]];
+    
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    [[MParticle sharedInstance] processWebViewLogEvent: oddURL];
+#pragma clang diagnostic pop
+
+    [mockBackendController verifyWithDelay:2];
+    
+    [mockBackendController stopMocking];
 }
 #endif
 

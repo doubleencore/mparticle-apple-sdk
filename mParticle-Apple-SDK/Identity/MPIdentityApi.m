@@ -6,7 +6,6 @@
 #import "MPIdentityApiManager.h"
 #import "mParticle.h"
 #import "MPBackendController.h"
-#import "MPStateMachine.h"
 #import "MPConsumerInfo.h"
 #import "MPIUserDefaults.h"
 #import "MPSession.h"
@@ -15,6 +14,7 @@
 #import "MPEnums.h"
 #import "MPILogger.h"
 #import "MPKitContainer.h"
+#import "MPDevice.h"
 
 typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
     MPIdentityRequestIdentify = 0,
@@ -22,6 +22,13 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
     MPIdentityRequestLogout = 2,
     MPIdentityRequestModify = 3
 };
+
+@interface MParticle ()
+
+@property (nonatomic, strong, readonly) MPPersistenceController *persistenceController;
+@property (nonatomic, strong, readonly) MPKitContainer *kitContainer;
+
+@end
 
 @interface MPIdentityApi ()
 
@@ -47,6 +54,7 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
 
 - (void)setUserIdentitySync:(NSString *)identityString identityType:(MPUserIdentity)identityType;
 - (void)setUserId:(NSNumber *)userId;
+- (void)setIsLoggedIn:(BOOL)isLoggedIn;
 @end
 
 @interface MPKitContainer ()
@@ -68,7 +76,7 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
     return self;
 }
 
-- (void)onModifyRequestComplete:(MPIdentityApiRequest *)request httpResponse:(MPIdentityHTTPModifySuccessResponse *) httpResponse completion:(MPIdentityApiResultCallback)completion error: (NSError *) error {
+- (void)onModifyRequestComplete:(MPIdentityApiRequest *)request httpResponse:(MPIdentityHTTPModifySuccessResponse *) httpResponse completion:(MPModifyApiResultCallback)completion error: (NSError *) error {
     if (error) {
         if (completion) {
             completion(nil, error);
@@ -76,7 +84,19 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
         return;
     }
     if (request.userIdentities) {
-        [request.userIdentities enumerateKeysAndObjectsUsingBlock:^(NSNumber * _Nonnull key, id identityValue, BOOL * _Nonnull stop) {
+        NSMutableDictionary *userIDsCopy = [request.userIdentities mutableCopy];
+        
+        if (userIDsCopy[@(MPUserIdentityCustomerId)]) {
+            [self.currentUser setUserIdentitySync:userIDsCopy[@(MPUserIdentityCustomerId)] identityType:MPUserIdentityCustomerId];
+            [userIDsCopy removeObjectForKey:@(MPUserIdentityCustomerId)];
+        }
+        
+        if (userIDsCopy[@(MPUserIdentityEmail)]) {
+            [self.currentUser setUserIdentitySync:userIDsCopy[@(MPUserIdentityEmail)] identityType:MPUserIdentityEmail];
+            [userIDsCopy removeObjectForKey:@(MPUserIdentityEmail)];
+        }
+        
+        [userIDsCopy enumerateKeysAndObjectsUsingBlock:^(NSNumber * _Nonnull key, id identityValue, BOOL * _Nonnull stop) {
             MPUserIdentity identityType = (MPUserIdentity)key.intValue;
             if ((NSNull *)identityValue == [NSNull null]) {
                 identityValue = nil;
@@ -85,24 +105,39 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
         }];
     }
     
-    // Forward call to kits
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [[MPKitContainer sharedInstance] forwardIdentitySDKCall:@selector(onModifyComplete: request:)
-                                                     kitHandler:^(id<MPKitProtocol> kit, MPKitConfiguration *kitConfig) {
-                                                         FilteredMParticleUser *filteredUser = [[FilteredMParticleUser alloc] initWithMParticleUser:self.currentUser kitConfiguration:kitConfig];
-                                                         FilteredMPIdentityApiRequest *filteredRequest = [[FilteredMPIdentityApiRequest alloc] initWithIdentityRequest:request kitConfiguration:kitConfig];
-                                                         [kit onModifyComplete:filteredUser request:filteredRequest];
-                                                     }];
-    });
+    [self forwardCallToKits:request identityRequestType:MPIdentityRequestModify user:self.currentUser];
     
     if (completion) {
-        MPIdentityApiResult *apiResult = [[MPIdentityApiResult alloc] init];
+        MPModifyApiResult *apiResult = [[MPModifyApiResult alloc] init];
         apiResult.user = self.currentUser;
+        NSMutableArray<MPIdentityChange *> *changes = [[NSMutableArray alloc] init];
+
+        for (NSDictionary *userChange in httpResponse.changeResults) {
+            if (userChange[@"modified_mpid"] != nil && userChange[@"identity_type"] != nil) {
+                MPIdentityChange *change = [[MPIdentityChange alloc] init];
+                
+                MParticleUser *changedUser = [[MParticleUser alloc] init];
+                changedUser.userId = userChange[@"modified_mpid"];
+                change.changedUser = changedUser;
+                
+                NSString *identityString = userChange[@"identity_type"];
+                NSNumber *identityNumber = [MPIdentityHTTPIdentities identityTypeForString:identityString];
+                if (identityNumber != nil) {
+                    change.changedIdentity = (MPUserIdentity)identityNumber.intValue;
+                    
+                    [changes addObject:change];
+                } else {
+                    MPILogError(@"Invalid identity type recieved: %@", identityString);
+                }
+            }
+        }
+        apiResult.identityChanges = changes;
+
         completion(apiResult, nil);
     }
 }
 
-- (void)onIdentityRequestComplete:(MPIdentityApiRequest *)request identityRequestType:(MPIdentityRequestType)identityRequestType httpResponse:(MPIdentityHTTPSuccessResponse *) httpResponse completion:(MPIdentityApiResultCallback)completion error: (NSError *) error {
+- (void)onIdentityRequestComplete:(MPIdentityApiRequest *)request identityRequestType:(MPIdentityRequestType)identityRequestType httpResponse:(MPIdentityHTTPSuccessResponse *)httpResponse completion:(MPIdentityApiResultCallback)completion error: (NSError *) error {
     if (error) {
         if (completion) {
             completion(nil, error);
@@ -115,6 +150,7 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
     MParticleUser *previousUser = self.currentUser;
     MParticleUser *user = [[MParticleUser alloc] init];
     user.userId = httpResponse.mpid;
+    user.isLoggedIn = httpResponse.isLoggedIn;
     apiResult.user = user;
     self.currentUser = user;
     MPSession *session = [MParticle sharedInstance].backendController.session;
@@ -135,86 +171,106 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
     }
     
     session.sessionUserIds = userIds.count > 0 ? [userIds componentsJoinedByString:@","] : @"";
-    [[MPPersistenceController sharedInstance] updateSession:session];
+    [[MParticle sharedInstance].persistenceController updateSession:session];
     
     if (request.userIdentities) {
-        [request.userIdentities enumerateKeysAndObjectsUsingBlock:^(NSNumber * _Nonnull key, id  _Nonnull identityValue, BOOL * _Nonnull stop) {
+        NSMutableDictionary *userIDsCopy = [request.userIdentities mutableCopy];
+        
+        if (userIDsCopy[@(MPUserIdentityCustomerId)]) {
+            [self.currentUser setUserIdentitySync:userIDsCopy[@(MPUserIdentityCustomerId)] identityType:MPUserIdentityCustomerId];
+            [userIDsCopy removeObjectForKey:@(MPUserIdentityCustomerId)];
+        }
+        
+        if (userIDsCopy[@(MPUserIdentityEmail)]) {
+            [self.currentUser setUserIdentitySync:userIDsCopy[@(MPUserIdentityEmail)] identityType:MPUserIdentityEmail];
+            [userIDsCopy removeObjectForKey:@(MPUserIdentityEmail)];
+        }
+        
+        [userIDsCopy enumerateKeysAndObjectsUsingBlock:^(NSNumber * _Nonnull key, id  _Nonnull identityValue, BOOL * _Nonnull stop) {
             MPUserIdentity identityType = (MPUserIdentity)key.intValue;
             [self.currentUser setUserIdentitySync:identityValue identityType:identityType];
         }];
     }
     
-    if (httpResponse.mpid.intValue == previousMPID.intValue) {
-        if (completion) {
-            completion(apiResult, nil);
-        }
-        return;
+    if (httpResponse.mpid.intValue != previousMPID.intValue) {
+        [self onMPIDChange:request httpResponse:httpResponse previousUser:previousUser newUser:user];
     }
     
+    [self forwardCallToKits:request identityRequestType:identityRequestType user:user];
+    
+    if (completion) {
+        completion(apiResult, nil);
+    }
+}
+
+- (void)onMPIDChange:(MPIdentityApiRequest *)request httpResponse:(MPIdentityHTTPSuccessResponse *)httpResponse previousUser:(MParticleUser *)previousUser newUser:(MParticleUser *)newUser {
     if (request.onUserAlias) {
         @try {
-            request.onUserAlias(previousUser, user);
+            request.onUserAlias(previousUser, newUser);
         } @catch (NSException *exception) {
             MPILogError(@"Identity request - onUserAlias block threw an exception when invoked by the SDK: %@", exception);
         }
     }
     
+    MPIUserDefaults *userDefaults = [MPIUserDefaults standardUserDefaults];
+
     [userDefaults setMPObject:@(httpResponse.isEphemeral) forKey:kMPIsEphemeralKey userId:httpResponse.mpid];
     [userDefaults synchronize];
-
-    [[MPPersistenceController sharedInstance] moveContentFromMpidZeroToMpid:httpResponse.mpid];
     
-    if (user) {
-        NSDictionary *userInfo = @{mParticleUserKey:user};
+    [[MParticle sharedInstance].persistenceController moveContentFromMpidZeroToMpid:httpResponse.mpid];
+    
+    if (newUser) {
+        NSDictionary *userInfo = @{mParticleUserKey:newUser};
         dispatch_async(dispatch_get_main_queue(), ^{
             [[NSNotificationCenter defaultCenter] postNotificationName:mParticleIdentityStateChangeListenerNotification object:nil userInfo:userInfo];
         });
     }
     
-    NSArray<NSDictionary *> *kitConfig = [[MPKitContainer sharedInstance].originalConfig copy];
+    NSArray<NSDictionary *> *kitConfig = [[MParticle sharedInstance].kitContainer.originalConfig copy];
     if (kitConfig) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [[MPKitContainer sharedInstance] configureKits:kitConfig];
+            [[MParticle sharedInstance].kitContainer configureKits:kitConfig];
         });
     }
-    
-    // Forwarding calls to kits
+}
+
+- (void)forwardCallToKits:(MPIdentityApiRequest *)request identityRequestType:(MPIdentityRequestType)identityRequestType user:(MParticleUser *)user{
     dispatch_async(dispatch_get_main_queue(), ^{
         switch (identityRequestType) {
             case MPIdentityRequestIdentify: {
-                [[MPKitContainer sharedInstance] forwardIdentitySDKCall:@selector(onIdentifyComplete: request:)
-                                                             kitHandler:^(id<MPKitProtocol> kit, MPKitConfiguration *kitConfig) {
-                                                                 FilteredMParticleUser *filteredUser = [[FilteredMParticleUser alloc] initWithMParticleUser:user kitConfiguration:kitConfig];
-                                                                 FilteredMPIdentityApiRequest *filteredRequest = [[FilteredMPIdentityApiRequest alloc] initWithIdentityRequest:request kitConfiguration:kitConfig];
-                                                                 [kit onIdentifyComplete:filteredUser request:filteredRequest];
-                                                             }];
+                [[MParticle sharedInstance].kitContainer forwardIdentitySDKCall:@selector(onIdentifyComplete: request:)
+                                                                     kitHandler:^(id<MPKitProtocol> kit, MPKitConfiguration *kitConfig) {
+                                                                         FilteredMParticleUser *filteredUser = [[FilteredMParticleUser alloc] initWithMParticleUser:user kitConfiguration:kitConfig];
+                                                                         FilteredMPIdentityApiRequest *filteredRequest = [[FilteredMPIdentityApiRequest alloc] initWithIdentityRequest:request kitConfiguration:kitConfig];
+                                                                         [kit onIdentifyComplete:filteredUser request:filteredRequest];
+                                                                     }];
                 break;
             }
             case MPIdentityRequestLogin: {
-                [[MPKitContainer sharedInstance] forwardIdentitySDKCall:@selector(onLoginComplete: request:)
-                                                             kitHandler:^(id<MPKitProtocol> kit, MPKitConfiguration *kitConfig) {
-                                                                 FilteredMParticleUser *filteredUser = [[FilteredMParticleUser alloc] initWithMParticleUser:user kitConfiguration:kitConfig];
-                                                                 FilteredMPIdentityApiRequest *filteredRequest = [[FilteredMPIdentityApiRequest alloc] initWithIdentityRequest:request kitConfiguration:kitConfig];
-                                                                 [kit onLoginComplete:filteredUser request:filteredRequest];
-                                                             }];
+                [[MParticle sharedInstance].kitContainer forwardIdentitySDKCall:@selector(onLoginComplete: request:)
+                                                                     kitHandler:^(id<MPKitProtocol> kit, MPKitConfiguration *kitConfig) {
+                                                                         FilteredMParticleUser *filteredUser = [[FilteredMParticleUser alloc] initWithMParticleUser:user kitConfiguration:kitConfig];
+                                                                         FilteredMPIdentityApiRequest *filteredRequest = [[FilteredMPIdentityApiRequest alloc] initWithIdentityRequest:request kitConfiguration:kitConfig];
+                                                                         [kit onLoginComplete:filteredUser request:filteredRequest];
+                                                                     }];
                 break;
             }
             case MPIdentityRequestLogout: {
-                [[MPKitContainer sharedInstance] forwardIdentitySDKCall:@selector(onLogoutComplete: request:)
-                                                             kitHandler:^(id<MPKitProtocol> kit, MPKitConfiguration *kitConfig) {
-                                                                 FilteredMParticleUser *filteredUser = [[FilteredMParticleUser alloc] initWithMParticleUser:user kitConfiguration:kitConfig];
-                                                                 FilteredMPIdentityApiRequest *filteredRequest = [[FilteredMPIdentityApiRequest alloc] initWithIdentityRequest:request kitConfiguration:kitConfig];
-                                                                 [kit onLogoutComplete:filteredUser request:filteredRequest];
-                                                             }];
+                [[MParticle sharedInstance].kitContainer forwardIdentitySDKCall:@selector(onLogoutComplete: request:)
+                                                                     kitHandler:^(id<MPKitProtocol> kit, MPKitConfiguration *kitConfig) {
+                                                                         FilteredMParticleUser *filteredUser = [[FilteredMParticleUser alloc] initWithMParticleUser:user kitConfiguration:kitConfig];
+                                                                         FilteredMPIdentityApiRequest *filteredRequest = [[FilteredMPIdentityApiRequest alloc] initWithIdentityRequest:request kitConfiguration:kitConfig];
+                                                                         [kit onLogoutComplete:filteredUser request:filteredRequest];
+                                                                     }];
                 break;
             }
             case MPIdentityRequestModify: {
-                [[MPKitContainer sharedInstance] forwardIdentitySDKCall:@selector(onModifyComplete: request:)
-                                                             kitHandler:^(id<MPKitProtocol> kit, MPKitConfiguration *kitConfig) {
-                                                                 FilteredMParticleUser *filteredUser = [[FilteredMParticleUser alloc] initWithMParticleUser:user kitConfiguration:kitConfig];
-                                                                 FilteredMPIdentityApiRequest *filteredRequest = [[FilteredMPIdentityApiRequest alloc] initWithIdentityRequest:request kitConfiguration:kitConfig];
-                                                                 [kit onModifyComplete:filteredUser request:filteredRequest];
-                                                             }];
+                [[MParticle sharedInstance].kitContainer forwardIdentitySDKCall:@selector(onModifyComplete: request:)
+                                                                     kitHandler:^(id<MPKitProtocol> kit, MPKitConfiguration *kitConfig) {
+                                                                         FilteredMParticleUser *filteredUser = [[FilteredMParticleUser alloc] initWithMParticleUser:user kitConfiguration:kitConfig];
+                                                                         FilteredMPIdentityApiRequest *filteredRequest = [[FilteredMPIdentityApiRequest alloc] initWithIdentityRequest:request kitConfiguration:kitConfig];
+                                                                         [kit onModifyComplete:filteredUser request:filteredRequest];
+                                                                     }];
                 break;
             }
             default: {
@@ -223,10 +279,6 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
             }
         }
     });
-    
-    if (completion) {
-        completion(apiResult, nil);
-    }
 }
 
 - (MParticleUser *)currentUser {
@@ -266,8 +318,14 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
     return userArray;
 }
 
+- (NSString *)deviceApplicationStamp {
+    MPDevice *device = [[MPDevice alloc] init];
+
+    return device.deviceIdentifier;
+}
+
 - (void)identifyNoDispatch:(MPIdentityApiRequest *)identifyRequest completion:(nullable MPIdentityApiResultCallback)completion {
-    [_apiManager identify:identifyRequest completion:^(MPIdentityHTTPBaseSuccessResponse * _Nonnull httpResponse, NSError * _Nullable error) {
+    [self.apiManager identify:identifyRequest completion:^(MPIdentityHTTPBaseSuccessResponse * _Nonnull httpResponse, NSError * _Nullable error) {
         [self onIdentityRequestComplete:identifyRequest identityRequestType:MPIdentityRequestIdentify httpResponse:(MPIdentityHTTPSuccessResponse *)httpResponse completion:completion error: error];
     }];
 }
@@ -300,7 +358,7 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
     
     dispatch_async([MParticle messageQueue], ^{
         
-        [self->_apiManager loginRequest:loginRequest completion:^(MPIdentityHTTPBaseSuccessResponse * _Nonnull httpResponse, NSError * _Nullable error) {
+        [self.apiManager loginRequest:loginRequest completion:^(MPIdentityHTTPBaseSuccessResponse * _Nonnull httpResponse, NSError * _Nullable error) {
             [self onIdentityRequestComplete:loginRequest identityRequestType:MPIdentityRequestLogin httpResponse:(MPIdentityHTTPSuccessResponse *)httpResponse completion:wrappedCompletion error: error];
         }];
         
@@ -321,7 +379,7 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
     };
     
     dispatch_async([MParticle messageQueue], ^{
-        [self->_apiManager logout:logoutRequest completion:^(MPIdentityHTTPBaseSuccessResponse * _Nonnull httpResponse, NSError * _Nullable error) {
+        [self.apiManager logout:logoutRequest completion:^(MPIdentityHTTPBaseSuccessResponse * _Nonnull httpResponse, NSError * _Nullable error) {
             [self onIdentityRequestComplete:logoutRequest identityRequestType:MPIdentityRequestLogout httpResponse:(MPIdentityHTTPSuccessResponse *)httpResponse completion:wrappedCompletion error: error];
         }];
     });
@@ -331,8 +389,8 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
     [self logout:(id _Nonnull)nil completion:completion];
 }
 
-- (void)modify:(MPIdentityApiRequest *)modifyRequest completion:(nullable MPIdentityApiResultCallback)completion {
-    MPIdentityApiResultCallback wrappedCompletion = ^(MPIdentityApiResult *_Nullable apiResult, NSError *_Nullable error) {
+- (void)modify:(MPIdentityApiRequest *)modifyRequest completion:(nullable MPModifyApiResultCallback)completion {
+    MPModifyApiResultCallback wrappedCompletion = ^(MPModifyApiResult *_Nullable apiResult, NSError *_Nullable error) {
         if (completion) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 completion(apiResult, error);
@@ -340,7 +398,7 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
         }
     };
     dispatch_async([MParticle messageQueue], ^{
-        [self->_apiManager modify:modifyRequest completion:^(MPIdentityHTTPModifySuccessResponse * _Nonnull httpResponse, NSError * _Nullable error) {
+        [self.apiManager modify:modifyRequest completion:^(MPIdentityHTTPModifySuccessResponse * _Nonnull httpResponse, NSError * _Nullable error) {
             [self onModifyRequestComplete:modifyRequest httpResponse:httpResponse completion:wrappedCompletion error: error];
         }];
     });
@@ -348,7 +406,15 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
 
 @end
 
+@implementation MPIdentityChange
+
+@end
+
 @implementation MPIdentityApiResult
+
+@end
+
+@implementation MPModifyApiResult
 
 @end
 
@@ -359,8 +425,8 @@ typedef NS_ENUM(NSUInteger, MPIdentityRequestType) {
     if (self) {
         _httpCode = httpCode;
         if (dictionary) {
-            _code = [dictionary[@"code"] unsignedIntegerValue];
-            _message = dictionary[@"message"];
+            _code = [dictionary[kMPIdentityRequestKeyCode] unsignedIntegerValue];
+            _message = dictionary[kMPIdentityRequestKeyMessage];
         } else {
             _code = httpCode;
         }

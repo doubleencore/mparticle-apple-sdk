@@ -43,9 +43,18 @@ typedef NS_ENUM(NSUInteger, MPExecStatus) {
 };
 
 @interface MPBackendController : NSObject
-#if TARGET_OS_IOS == 1
-<MPNotificationControllerDelegate>
 
+extern const NSTimeInterval kMPRemainingBackgroundTimeMinimumThreshold;
+extern const NSInteger kNilAttributeValue;
+extern const NSInteger kEmptyAttributeValue;
+extern const NSInteger kExceededAttributeCountLimit;
+extern const NSInteger kExceededAttributeValueMaximumLength;
+extern const NSInteger kExceededAttributeKeyMaximumLength;
+extern const NSInteger kInvalidDataType;
+extern const NSTimeInterval kMPMaximumKitWaitTimeSeconds;
+extern const NSInteger kInvalidKey;
+
+#if TARGET_OS_IOS == 1
 @property (nonatomic, strong, nonnull) MPNotificationController *notificationController;
 #endif
 
@@ -57,10 +66,12 @@ typedef NS_ENUM(NSUInteger, MPExecStatus) {
 @property (nonatomic, unsafe_unretained) NSTimeInterval uploadInterval;
 
 - (nonnull instancetype)initWithDelegate:(nonnull id<MPBackendControllerDelegate>)delegate;
-- (void)beginSession:(void (^ _Nullable)(MPSession * _Nullable session, MPSession * _Nullable previousSession, MPExecStatus execStatus))completionHandler;
+- (void)beginSession;
 - (void)endSession;
+- (void)beginSessionWithIsManual:(BOOL)isManual date:(nonnull NSDate *)date;
+- (void)endSessionWithIsManual:(BOOL)isManual;
 - (void)beginTimedEvent:(nonnull MPEvent *)event completionHandler:(void (^ _Nonnull)(MPEvent * _Nonnull event, MPExecStatus execStatus))completionHandler;
-- (BOOL)checkAttribute:(nonnull NSDictionary *)attributesDictionary key:(nonnull NSString *)key value:(nonnull id)value error:(out NSError *__autoreleasing _Nullable * _Nullable)error;
++ (BOOL)checkAttribute:(nonnull NSDictionary *)attributesDictionary key:(nonnull NSString *)key value:(nonnull id)value error:(out NSError *__autoreleasing _Nullable * _Nullable)error;
 - (nullable MPEvent *)eventWithName:(nonnull NSString *)eventName;
 - (nullable NSString *)execStatusDescription:(MPExecStatus)execStatus;
 - (MPExecStatus)fetchSegments:(NSTimeInterval)timeout endpointId:(nullable NSString *)endpointId completionHandler:(void (^ _Nonnull)(NSArray * _Nullable segments, NSTimeInterval elapsedTime, NSError * _Nullable error))completionHandler;
@@ -80,7 +91,7 @@ typedef NS_ENUM(NSUInteger, MPExecStatus) {
 - (void)setUserIdentity:(nullable NSString *)identityString identityType:(MPUserIdentity)identityType timestamp:(nonnull NSDate *)timestamp completionHandler:(void (^ _Nonnull)(NSString * _Nullable identityString, MPUserIdentity identityType, MPExecStatus execStatus))completionHandler;
 - (void)startWithKey:(nonnull NSString *)apiKey secret:(nonnull NSString *)secret firstRun:(BOOL)firstRun installationType:(MPInstallationType)installationType proxyAppDelegate:(BOOL)proxyAppDelegate startKitsAsync:(BOOL)startKitsAsync consentState:(MPConsentState *_Nullable)consentState completionHandler:(dispatch_block_t _Nonnull)completionHandler;
 - (void)saveMessage:(nonnull MPMessage *)message updateSession:(BOOL)updateSession;
-- (MPExecStatus)uploadDatabaseWithCompletionHandler:(void (^ _Nullable)(void))completionHandler;
+- (MPExecStatus)waitForKitsAndUploadWithCompletionHandler:(void (^ _Nullable)(void))completionHandler;
 - (nonnull NSMutableDictionary<NSString *, id> *)userAttributesForUserId:(nonnull NSNumber *)userId;
 - (nonnull NSMutableArray<NSDictionary<NSString *, id> *> *)userIdentitiesForUserId:(nonnull NSNumber *)userId;
 
@@ -88,7 +99,7 @@ typedef NS_ENUM(NSUInteger, MPExecStatus) {
 - (MPExecStatus)beginLocationTrackingWithAccuracy:(CLLocationAccuracy)accuracy distanceFilter:(CLLocationDistance)distance authorizationRequest:(MPLocationAuthorizationRequest)authorizationRequest;
 - (MPExecStatus)endLocationTracking;
 - (void)handleDeviceTokenNotification:(nonnull NSNotification *)notification;
-- (void)receivedUserNotification:(nonnull MParticleUserNotification *)userNotification;
+- (void)logUserNotification:(nonnull MParticleUserNotification *)userNotification;
 #endif
 
 @end

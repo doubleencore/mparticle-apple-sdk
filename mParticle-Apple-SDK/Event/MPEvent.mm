@@ -6,6 +6,7 @@
 #import "MPILogger.h"
 #import "MPProduct.h"
 #import "MPProduct+Dictionary.h"
+#import "MParticle.h"
 
 @interface MPEvent()
 
@@ -35,7 +36,7 @@
         return nil;
     }
     
-    if (name.length > LIMIT_NAME) {
+    if (name.length > LIMIT_ATTR_KEY_LENGTH) {
         MPILogError(@"The event name is too long.");
         return nil;
     }
@@ -127,7 +128,7 @@
 
 #pragma mark Public accessors
 - (void)setCategory:(NSString *)category {
-    if (category.length <= LIMIT_NAME) {
+    if (category.length <= LIMIT_ATTR_VALUE_LENGTH) {
         _category = category;
     } else {
         MPILogError(@"The category length is too long. Discarding category.");
@@ -158,12 +159,12 @@
         
         if ([info isKindOfClass:[NSDictionary class]]) {
             [info enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop) {
-                if ([value isKindOfClass:[NSString class]] && ((NSString *)value).length > LIMIT_ATTR_LENGTH) {
+                if ([value isKindOfClass:[NSString class]] && ((NSString *)value).length > LIMIT_ATTR_VALUE_LENGTH) {
                     respectsConstraints = NO;
                     *stop = YES;
                 }
                 
-                if (key.length > LIMIT_NAME) {
+                if (key.length > LIMIT_ATTR_KEY_LENGTH) {
                     respectsConstraints = NO;
                     *stop = YES;
                 }
@@ -186,7 +187,7 @@
         return;
     }
     
-    if (name.length > LIMIT_NAME) {
+    if (name.length > LIMIT_ATTR_KEY_LENGTH) {
         MPILogError(@"The event name is too long.");
         return;
     }

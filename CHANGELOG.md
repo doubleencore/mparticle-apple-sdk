@@ -1,5 +1,447 @@
 # mParticle Apple SDK CHANGELOG
 
+## 7.9.1
+
+## Core
+
+- None
+
+## Kits
+
+### Pilgrim kit
+
+We've released an integration with Foursquare Pilgrim! Docs will be published soon--in the meantime you can check out the [source code here](https://github.com/mparticle-integrations/mparticle-apple-integration-pilgrim).
+
+### OneTrust kit
+
+We have also released an integration with OneTrust! Check out the [docs here](https://docs.mparticle.com/integrations/onetrust/event/) and the [source code here](https://github.com/mparticle-integrations/mparticle-apple-integration-onetrust).
+
+- Leanplum - Add device id setting
+- Optimizely - Update Optimizely SDK to 3.0
+
+## 7.9.0
+
+## Core
+
+### Session tracking update
+
+This release updates the mechanism whereby the SDK tracks user sessions.
+
+Previously the SDK would start a session whenever an event was received, even if the event was triggered when processing a background push or location update.
+
+The SDK now measures sessions based on user engagement i.e. when the app is in the foreground and visible to the user.
+
+In the past the SDK would make special accommodations for apps that have long running background sessions due to use of location or background audio, in that sessions would continue even when the app remained in the background for an extended period of time. As of this release, this behavior has changed so that the session ends when the app is backgrounded even if, for example, background audio is still playing.
+
+We have also introduced new APIs to manually begin and end sessions, so that you may customize this behavior if necessary.
+
+Finally, this release also addresses an issue where session end messages may not have been created after the app was forcibly killed.
+
+- Update kit configuration validation
+- Update Modify API Response
+- Cleanup unused macros and update setting for extensions
+
+## Kits
+
+- Appboy - Update configuration error checking
+- Clevertap - Update CleverTap SDK to 3.4.1
+- Iterable - Fix crash if no webpage URL from continueUserActivity
+- UrbanAirship - Update UrbanAirship SDK to 10.1
+
+## 7.8.6
+
+## Core
+
+- Add new webview bridge support
+- Fix kit queue log messages when no kits included
+- Fix potential crash when uploading a large backlog of messages
+
+## Kits
+
+- Optimizely - Update data file interval key
+
+## 7.8.5
+
+## Core
+
+- None
+
+## Kits
+
+### Google Analytics for Firebase Kit
+
+We've released an integration with Google Analytics for Firebase! Check out the [docs here](https://docs.mparticle.com/integrations/firebase/event/) and the [source code here](https://github.com/mparticle-integrations/mparticle-apple-integration-google-analytics-firebase).
+
+## 7.8.4
+
+## Core
+
+This release helps make our AppDelegate proxy mechanism more transparent by allowing KVO/KVC messages to pass through to the original AppDelegate as expected. It also cleans up a few analyzer warnings that were introduced and removes some validation code that could interfere with partner kit development or certain customer use cases.
+
+- Fix analyzer warnings
+- Fix AppDelegate KVO when proxying is enabled
+- Remove MPKitInstanceValidator
+
+## Kits
+
+- ComScore - Add tvOS support
+
+## 7.8.3
+
+## Core
+
+- Add new and updated existing integration attribute APIs
+
+    - Allow integration attributes to be set for any ID (not just known kit IDs)
+    - Add a public query API for specific integration attributes by ID
+    - Rename the private usages and APIs from kitCode to integrationId
+
+- Fix a potential hang that could occur if Apple Search Ads timed out
+
+## Kits
+
+- None
+
+## 7.8.2
+
+## Core
+
+- Fix kit identity forwarding
+
+If the mpid did not change, we were not forwarding identity events to kits. This change ensures that we are always forwarding identity events to our kits by removing the early return and restructuring the code for clarity in the future.
+
+## Kits
+
+- Optimizely - Update for tvOS
+
+## 7.8.1
+
+## Core
+
+- Updates retry logic for collecting Apple Search Ads and introduces an option to disable collection.
+
+## Kits
+
+### Responsys Kit
+
+We've released an integration with Oracle Responsys! Check out the [docs here](https://docs.mparticle.com/integrations/oracle-responsys/event/) and the [source code here](https://github.com/mparticle-integrations/mparticle-apple-integration-responsys).
+
+## Static Framework updates
+
+We've marked several kits as static frameworks to make them usable with CocoaPods `use_frameworks!`:
+
+- Appsee
+- Apteligent/Crittercism
+- Instabot
+- Kahuna
+- Kochava
+- Radar
+- Taplytics
+
+## 7.8.0
+
+## Core
+
+- Introduced an API to query for the "Device Application Stamp": `MParticle.sharedInstance.identity.deviceApplicationStamp`
+- Added Custom Flag support to `MPCommerceEvent`
+
+## Kits
+
+### Optimizely Kit
+
+We've released an integration with Optimizely! Check out the [docs here](https://docs.mparticle.com/integrations/optimizely/event/) and the [source code here](https://github.com/mparticle-integrations/mparticle-apple-integration-optimizely).
+
+## 7.7.5
+
+## Critical Bug Fix
+
+This release contains a bug fix for a regression present in SDK versions 7.7.3 and 7.7.4. The issue only affects customers using client-side "kit" integrations. For these customers, events are sent as duplicates to each integration. If your app is on an impacted SDK, you can use mParticle's server-side filtering features to prevent events from being sent until you can upgrade to SDK 7.7.5 or later.
+
+## Core SDK Updates
+
+### Carthage binary artifacts
+
+In addition to directly attaching binary artifacts to GitHub releases,
+we will be providing Carthage json manifest files in the root of each repo
+that supports Carthage.
+
+This helps support the use of some command line flags (like --no-use-binaries)
+that may not otherwise work properly with certain kits (e.g. Braze/mParticle-Appboy)
+
+Please note that due to the required sequence of steps for the release process,
+the json files will be generated and published prior to the artifacts being
+uploaded, so the links in the json files may be invalid for a short period of time
+after initially being committed.
+
+### Updated SDK limits
+
+The SDK no longer limits the size of non-array event attribute values to 255 characters,
+lengths of up to 4096 characters are now supported.
+
+Some obsolete limits have been removed.
+
+### New SDK limits
+
+Add limits for message, batch size
+
+This release results in messages larger than 100K being dropped.
+
+If your log level is set to Error or higher, a message will be logged
+when this occurs.
+
+This release also limits the total message bytes and total number
+of messages that can be packed into each batch.
+
+However, these batch-level limits will not result in dropped data
+since the SDK will enforce the limits by producing smaller batches.
+
+### Disable kits for Anonymous Users
+
+You can now control which kits are enabled and disabled based on a user's "logged in" state. A common use case would be to initialize a given kit for non-anonymous (logged in) users. Navigate to a kit's connection settings in your mParticle dashboard to give this a try.
+
+- Mark user segments API deprecated
+- Fix kit location forwarding
+
+## Kit Updates
+
+- Appboy - Bugfix for in app message delegate
+- AppsFlyer - Mark as static_framework to support `use_frameworks!`
+- Update Taplytics to 2.33.0
+
+## 7.7.2
+
+## Core SDK Updates
+
+- Fix a bug where webview events with an encoded slash in the event info were being dropped
+- Fix retain cycles in MPConnector
+
+## Kit Updates
+
+### Kochava
+- Ensure log level from config is always respected, not overridden by environment
+- Don't set Kochava delegate unless retrieveAttribution setting is turned on
+- Remove use of undocumented isNewUser flag
+
+## 7.7.1
+
+## Core SDK Updates
+
+- Fix Reachability bug where we were incorrectly reporting users as being on wifi when they were actually using mobile data
+
+## Kit Updates
+
+- Kochava - Add support for mParticle Attribution API
+
+## 7.7.0
+
+## Core SDK Updates
+
+- We've cleaned up and addressed several bugs around automatic push-notification event tracking.
+- Several new APIs have also been introduced to control the tracking of push notifications. You can now manually log that a push has been received or opened. You can also disable the automatic collection of those two events via the MParticleOptions "trackNotifications" property.
+- We've also addressed an issue whereby NSNull is passed to the legacy, pre-IDSync kit APIs as several kits, such as Branch, were unable to handle NSNull.
+
+## Kit Updates
+
+### Taplytics Kit
+
+The Taplytics kit has been released with much help from the Taplytics team!
+
+## 7.6.0
+
+## Core SDK Updates
+
+- Updates for better iOS 12 and Xcode 10 support. We upgraded to NSSecureCoding and silenced other deprecation warnings to maintain support for older iOS versions.
+- Code cleanup and additional unit tests for session notifications
+
+## Kit Updates
+
+- Update Radar kit
+- Add Appsee kit
+
+## 7.5.7
+
+## Core SDK Updates
+
+- Simplify backend attribute tests
+- Update readme for Localytics Carthage support
+- Prevent non-modular include error
+- Fix potential crash if called with nil identity
+
+## Kit Updates
+
+- None
+
+## 7.5.6
+
+## Core SDK Updates
+
+- Update JS snippet to initialize webview
+- Enable undefined behavior sanitizer for unit tests
+- Silence sanitizer for hashing
+- Fix validation for set user tag
+- Allow disabling location tracking using ifdef
+
+## Kit Updates
+
+- Branch: Fix mapping of events to Branch events
+
+## 7.5.5
+
+## Core SDK Updates
+
+- Allow querying the SDK for session ID
+
+## Kit Updates
+
+- Branch: Handle deep links at app startup
+
+## 7.5.4
+
+## Core SDK Updates
+
+- Update the order of forwarding identities to kits
+
+## Kit Updates
+
+- Braze (mParticle-Appboy): Implement modify and login MPKitProtocol methods. This ensures that users are assigned the correct email address when sharing the same device.
+
+**Warning**: You must be using version 7.3.0 or later of the core SDK in order to use this version of the Braze kit.
+
+## 7.5.3
+
+## Core SDK Updates
+
+- None
+
+## Kit Updates
+
+- AppsFlyer: Map MPCommerceEvent product SKUs to af_content_id
+- Localytics: Add Carthage support
+
+## 7.5.2
+
+- This release updates the `mParticleSessionDidBeginNotification` and `mParticleSessionDidEndNotification` notifications to contain the session GUID rather than the SQLite autoincrement ID. This GUID will match the GUID that is communicated via mParticle's server-to-server integrations.
+- This release also updates the UIApplication `openURL` signature exposed by the SDK to be more compatible with Swift.
+
+## 7.5.1
+
+- This release completely removes the SDK's primary UIApplication termination listener. Prior to this change, the SDK could prevent process termination while it was performing several cleanup activities.
+
+## 7.5.0
+
+### iOS 12 beta and iOS 12 support
+
+This release updates the SDK to handle several changes present in the latest beta builds of Xcode 10 and iOS 12.
+
+## 7.4.2
+
+- This releases addresses several synchronization issues with internal SDK properties that could lead to crashes.  
+
+## 7.4.1
+
+- This releases updates the SDK's UIAppication termination handler to perform operations sychronously. This handler is used to capture the latest device state prior to app force-closes such that subsequent uploads are accurate. Doing this sychronously on the main thread is required to avoid undefined behavior due to iOS process destruction.
+
+## 7.4.0
+
+- This release is a follow up to version 7.3.11 and moves all kit APIs invocations to the main thread rather than the mParticle SDK's message queue.
+
+## 7.3.13
+
+- This release updates the timing of when user identities are set on the MParticleUser object. This makes it so that once an identity callback is returned, the provided MParticleUser object has the most up-to-date identities present and queryable.
+
+## 7.3.12
+
+- This release addresses a migration-crash for customers upgrading from version 6 of the SDK and who are using the SDK's crash-detection APIs.
+- This release also adds an appledoc plist to source such that the Appledocs can be generated more easily. We also host the Appledocs on the mParticle documentation site: https://docs.mparticle.com/developers/sdk/ios/appledocs/index.html
+
+## 7.3.11
+
+- This release ensures that kits are always started on the main thread rather than the SDK's internal serial queue. Kits will still not be started sychronously when calling `MParticle.start`, but they will be initialized on the main thread on a later run-loop. 
+
+## 7.3.10
+
+- This release updates the SDK's app extension support. The `MPARTICLE_APP_EXTENSIONS` flag is no longer necessary and the SDK will determine if it's running in an app extension based off the `appex` suffix in the app bundle.
+
+## 7.3.9
+
+- This release addresses warnings due to the Xcode main thread checker and adds additional synchronization for internal properties that are accessed acrossed threads.
+
+## 7.3.8
+
+## Core SDK Updates
+
+- This release fixes an issue where uploads could be delayed until app background
+
+## Kit Updates
+
+- Kochava: Fix user identity usage to conform to the latest `FilteredMParticleUser` APIs
+
+## 7.3.7
+
+### Core SDK Updates
+
+#### GDPR Consent Management
+
+The SDK can now dynamically enable and disable kits based on the current user's ConsentState, for GDPR and any other regulation. This lets you enable or disable individual kits only if a given Consent purpose or purposes have been granted or rejected by the user.
+
+##### Additional Updates
+
+- New NetworkOptions API letting you customize SSL pinning and SDK endpoints.
+- Ability to query for all users that the SDK has tracked locally on the device.
+- Bugfix to address simulator reachability issues
+
+### Kit Updates
+
+- Leanplum: Fix user identity query to conform to the latest `FilteredMParticleUser` APIs
+
+## 7.3.6
+
+- This release updates the SDK's SQLite connection to allow for full multi-threaded access. The SDK does not generally access SQLite outside of a single serial queue, but in certain situations it will and could have potentially caused a crash due to simultanous access.
+
+## 7.3.5
+
+- This release fixes potential SQLite crashes caused by multi-threaded SQLite access caused by the SDK's significant time-change listener.
+- This release addresses a potential crash or error log caused by kits that implement the attribution API and return a nil attribution result.
+
+## 7.3.4 
+
+- This is a **critical** bug fix release. Prior to this, the SDK would upload duplicate kit forwarding statistics. These statistic do not impact forwarding - but they populate the mParticle Event Forwarding dashboard. This change is crucial for proper reporting as well as reducing the amount of SDK SQL storage and upload payload size.
+
+## 7.3.3
+
+- This release makes a change to the KitProtocol to remove the `onUserIdentified` API.
+
+## 7.3.2
+
+This release replaces the previous release 7.3.1, addressing a crash that can occur on startup when certain configuration settings are present.
+
+The following changes from 7.3.1 are also included:
+
+Addresses an issue where configuration could be purged by the OS on low disk space devices and cleans up some compiler warnings.
+
+Updates the Branch kit with support for Branch's v2 event tracking APIs, collecting search ads attribution and various other improvements.
+
+## 7.3.1
+
+- This release moves kit configuration cache into NSUserDefaults to ensure it is not deleted on devices with low storage space.
+
+## 7.3.0
+
+- This release introduces a series of enhancements to the SDK to ensure that all database and filesystem operations are performed off of the main thread. The SDK's internal message queue is now relied on for all operations.
+
+## 7.2.1
+
+This release optimizes SDK startup time by deferring or avoiding expensive operations that otherwise were taking place during SDK start.
+
+In addition, it introduces an option to start kits asynchronously.
+
+Here are a few important notes about this release:
+
+- If you are using the Adjust kit, you must update to version 7.2.1 of the kit in coordination with this update to the core SDK. Otherwise your Adjust environment will not be set properly.
+- The SDK no longer automatically disables logging in production. The default log level is now set to "none". If you increase the log level for your development builds, please ensure that change does not get compiled into the release version of your app.
+- App delegate proxying was incorrectly disabled by default. This has been fixed.
+- The SDK now collects user agent by default
+
 ## 7.2.0
 
 This is a *high priority* update for all users of SDK v7. This update:

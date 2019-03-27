@@ -13,7 +13,12 @@
 #endif
 
 @interface MParticle ()
+
 @property (nonatomic, strong, nullable) NSArray<NSDictionary *> *deferredKitConfiguration;
+@property (nonatomic, strong, readonly) MPPersistenceController *persistenceController;
+@property (nonatomic, strong, readonly) MPStateMachine *stateMachine;
+@property (nonatomic, strong, readonly) MPKitContainer *kitContainer;
+
 @end
 
 @implementation MPResponseConfig
@@ -29,7 +34,7 @@
     }
 
     _configuration = [configuration copy];
-    MPStateMachine *stateMachine = [MPStateMachine sharedInstance];
+    MPStateMachine *stateMachine = [MParticle sharedInstance].stateMachine;
     
     if (dataReceivedFromServer) {
         BOOL hasConsentFilters = NO;
@@ -75,7 +80,7 @@
         
         if (!shouldDefer) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                [[MPKitContainer sharedInstance] configureKits:self->_configuration[kMPRemoteConfigKitsKey]];
+                [[MParticle sharedInstance].kitContainer configureKits:self->_configuration[kMPRemoteConfigKitsKey]];
             });
         } else {
             [MParticle sharedInstance].deferredKitConfiguration = [self->_configuration[kMPRemoteConfigKitsKey] copy];
@@ -87,6 +92,7 @@
     [stateMachine configureRampPercentage:_configuration[kMPRemoteConfigRampKey]];
     [stateMachine configureTriggers:_configuration[kMPRemoteConfigTriggerKey]];
     [stateMachine configureRestrictIDFA:_configuration[kMPRemoteConfigRestrictIDFA]];
+    stateMachine.allowASR = [_configuration[kMPRemoteConfigAllowASR] boolValue];
         
     // Exception handling
     NSString *auxString = !MPIsNull(_configuration[kMPRemoteConfigExceptionHandlingModeKey]) ? _configuration[kMPRemoteConfigExceptionHandlingModeKey] : nil;
@@ -121,16 +127,20 @@
     return self;
 }
 
-#pragma mark NSCoding
+#pragma mark NSSecureCoding
 - (void)encodeWithCoder:(NSCoder *)coder {
     [coder encodeObject:_configuration forKey:@"configuration"];
 }
 
 - (id)initWithCoder:(NSCoder *)coder {
-    NSDictionary *configuration = [coder decodeObjectForKey:@"configuration"];
+    NSDictionary *configuration = [coder decodeObjectOfClass:[NSDictionary class] forKey:@"configuration"];
     self = [[MPResponseConfig alloc] initWithConfiguration:configuration dataReceivedFromServer:NO];
     
     return self;
+}
+
++ (BOOL)supportsSecureCoding {
+    return YES;
 }
 
 #pragma mark Private methods
@@ -153,7 +163,7 @@
 #if TARGET_OS_IOS == 1
 - (void)configureLocationTracking:(NSDictionary *)locationDictionary {
     NSString *locationMode = locationDictionary[kMPRemoteConfigLocationModeKey];
-    [MPStateMachine sharedInstance].locationTrackingMode = locationMode;
+    [MParticle sharedInstance].stateMachine.locationTrackingMode = locationMode;
     
     if ([locationMode isEqualToString:kMPRemoteConfigForceTrue]) {
         NSNumber *accurary = locationDictionary[kMPRemoteConfigLocationAccuracyKey];
@@ -167,7 +177,7 @@
 
 - (void)configurePushNotifications:(NSDictionary *)pushNotificationDictionary {
     NSString *pushNotificationMode = pushNotificationDictionary[kMPRemoteConfigPushNotificationModeKey];
-    [MPStateMachine sharedInstance].pushNotificationMode = pushNotificationMode;
+    [MParticle sharedInstance].stateMachine.pushNotificationMode = pushNotificationMode;
     if (![MPStateMachine isAppExtension]) {
         UIApplication *app = [MPApplication sharedUIApplication];
         

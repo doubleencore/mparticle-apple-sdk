@@ -6,6 +6,7 @@
 #include "MessageTypeName.h"
 #import "MPILogger.h"
 #import "MPConsentSerialization.h"
+#import "MParticle.h"
 
 @interface MPKitConfiguration()
 @property (nonatomic, strong) NSDictionary *configurationDictionary;
@@ -61,6 +62,13 @@
             configDictionary[@"eas"] = _singleItemEventAttributeList;
         }
         
+        for (NSString *key in configDictionary.allKeys) {
+            id value = configDictionary[key];
+            if ((NSNull *)value == [NSNull null]) {
+                [configDictionary removeObjectForKey:key];
+            }
+        }
+        
         _configuration = [configDictionary copy];
     }
     
@@ -75,10 +83,11 @@
     // Kit instance
     _bracketConfiguration = !MPIsNull(configurationDictionary[kMPRemoteConfigBracketKey]) ? configurationDictionary[kMPRemoteConfigBracketKey] : nil;
     
-    _kitCode = !MPIsNull(configurationDictionary[@"id"]) ? configurationDictionary[@"id"] : nil;
+    _integrationId = !MPIsNull(configurationDictionary[@"id"]) ? configurationDictionary[@"id"] : nil;
     
-    if (_kitCode != nil) {
+    if (_integrationId != nil) {
         _configurationDictionary = configurationDictionary;
+        _excludeAnonymousUsers = [configurationDictionary[kMPRemoteConfigExcludeAnonymousUsersKey] boolValue];
     } else {
         return nil;
     }
@@ -90,7 +99,7 @@
     return [_configurationHash isEqualToNumber:object.configurationHash];
 }
 
-#pragma mark NSCoding
+#pragma mark NSSecureCoding
 - (void)encodeWithCoder:(NSCoder *)coder {
     [coder encodeObject:self.configurationDictionary forKey:@"configurationDictionary"];
 }
@@ -99,7 +108,7 @@
     NSDictionary *configurationDictionary;
     
     @try {
-        configurationDictionary = [coder decodeObjectForKey:@"configurationDictionary"];
+        configurationDictionary = [coder decodeObjectOfClass:[NSDictionary class] forKey:@"configurationDictionary"];
     }
     
     @catch ( NSException *e) {
@@ -117,6 +126,10 @@
     }
     
     return self;
+}
+
++ (BOOL)supportsSecureCoding {
+    return YES;
 }
 
 #pragma mark NSCopying

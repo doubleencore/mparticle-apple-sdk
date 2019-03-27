@@ -10,6 +10,13 @@
 #import "MPStateMachine.h"
 #import "MPConsumerInfo.h"
 
+@interface MParticle ()
+
+@property (nonatomic, strong, readonly) MPPersistenceController *persistenceController;
+@property (nonatomic, strong, readonly) MPStateMachine *stateMachine;
+
+@end
+
 @implementation MPIdentityHTTPBaseRequest
 
 - (NSDictionary *)dictionaryRepresentation {
@@ -64,7 +71,7 @@
             _knownIdentities.vendorId = vendorId;
         }
         
-        NSString *deviceApplicationStamp = [MPStateMachine sharedInstance].consumerInfo.deviceApplicationStamp;
+        NSString *deviceApplicationStamp = [MParticle sharedInstance].stateMachine.consumerInfo.deviceApplicationStamp;
         if (deviceApplicationStamp) {
             _knownIdentities.deviceApplicationStamp = deviceApplicationStamp;
         }
@@ -335,6 +342,36 @@
     }
 }
 
++ (NSNumber *)identityTypeForString:(NSString *)identityString {
+    if ([identityString isEqualToString:@"customerid"]){
+        return @(MPUserIdentityCustomerId);
+    } else if ([identityString isEqualToString:@"email"]){
+        return @(MPUserIdentityEmail);
+    } else if ([identityString isEqualToString:@"facebook"]){
+        return @(MPUserIdentityFacebook);
+    } else if ([identityString isEqualToString:@"facebookcustomaudienceid"]){
+        return @(MPUserIdentityFacebookCustomAudienceId);
+    } else if ([identityString isEqualToString:@"google"]){
+        return @(MPUserIdentityGoogle);
+    } else if ([identityString isEqualToString:@"microsoft"]){
+        return @(MPUserIdentityMicrosoft);
+    } else if ([identityString isEqualToString:@"other"]){
+        return @(MPUserIdentityOther);
+    } else if ([identityString isEqualToString:@"twitter"]){
+        return @(MPUserIdentityTwitter);
+    } else if ([identityString isEqualToString:@"yahoo"]){
+        return @(MPUserIdentityYahoo);
+    } else if ([identityString isEqualToString:@"other2"]){
+        return @(MPUserIdentityOther2);
+    } else if ([identityString isEqualToString:@"other3"]){
+        return @(MPUserIdentityOther3);
+    } else if ([identityString isEqualToString:@"other4"]){
+        return @(MPUserIdentityOther4);
+    } else {
+        return nil;
+    }
+}
+
 @end
 
 @implementation MPIdentityHTTPIdentityChange
@@ -376,13 +413,14 @@
 - (instancetype)initWithJsonObject:(NSDictionary *)dictionary {
     self = [super init];
     if (self) {
-        _context = dictionary[@"context"];
-        NSString *mpidString = dictionary[@"mpid"];
+        _context = dictionary[kMPIdentityRequestKeyContext];
+        NSString *mpidString = dictionary[kMPIdentityRequestKeyMPID];
         if (mpidString) {
             _mpid = [NSNumber numberWithLongLong:(long long)[mpidString longLongValue]];
         }
-        _isEphemeral = [[dictionary valueForKey:@"is_ephemeral"] boolValue];
-        
+        _isEphemeral = [[dictionary objectForKey:kMPIdentityRequestKeyIsEphemeral] boolValue];
+        _isLoggedIn =  [[dictionary objectForKey:kMPIdentityRequestKeyIsLoggedIn] boolValue];
+
     }
     return self;
 }
@@ -396,7 +434,10 @@
 @implementation MPIdentityHTTPModifySuccessResponse
 
 - (instancetype)initWithJsonObject:(NSDictionary *)dictionary {
-    self = [super init];
+    self = [super initWithJsonObject:dictionary];
+    if (self) {
+        _changeResults = [dictionary objectForKey:kMPIdentityRequestKeyChangeResults];
+    }
     return self;
 }
 

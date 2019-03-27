@@ -13,6 +13,13 @@ static NSDateFormatter *RFC1123DateFormatter;
 static NSTimeInterval requestTimeout = 30.0;
 static NSString *mpUserAgent = nil;
 
+@interface MParticle ()
+
+@property (nonatomic, strong, readonly) MPStateMachine *stateMachine;
+@property (nonatomic, strong, readonly) MPKitContainer *kitContainer;
+
+@end
+    
 @interface MPURLRequestBuilder() {
     BOOL SDKURLRequest;
 }
@@ -74,8 +81,8 @@ static NSString *mpUserAgent = nil;
     if (!mpUserAgent) {
         if (MParticle.sharedInstance.customUserAgent != nil) {
             mpUserAgent = MParticle.sharedInstance.customUserAgent;
-        } else if (MParticle.sharedInstance.collectUserAgent) {
 #if TARGET_OS_IOS == 1
+        } else if (MParticle.sharedInstance.collectUserAgent) {
             NSString *currentSystemVersion = [UIDevice currentDevice].systemVersion;
             NSString *savedSystemVersion = [MPIUserDefaults standardUserDefaults][kMPUserAgentSystemVersionUserDefaultsKey];
             if ([currentSystemVersion isEqualToString:savedSystemVersion]) {
@@ -95,7 +102,10 @@ static NSString *mpUserAgent = nil;
                 }
 
                 @try {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
                     UIWebView *webView = [[UIWebView alloc] initWithFrame:CGRectZero];
+#pragma clang diagnostic pop
                     mpUserAgent = [webView stringByEvaluatingJavaScriptFromString:@"navigator.userAgent"];
                     NSString *systemVersion = [UIDevice currentDevice].systemVersion;
                     if (mpUserAgent && systemVersion) {
@@ -191,7 +201,7 @@ static NSString *mpUserAgent = nil;
     
     if (SDKURLRequest || isIdentityRequest) {
         NSString *deviceLocale = [[NSLocale autoupdatingCurrentLocale] localeIdentifier];
-        MPKitContainer *kitContainer = !isIdentityRequest ? [MPKitContainer sharedInstance] : nil;
+        MPKitContainer *kitContainer = !isIdentityRequest ? [MParticle sharedInstance].kitContainer : nil;
         NSArray<NSNumber *> *supportedKits = [kitContainer supportedKits];
         NSString *contentType = nil;
         NSString *kits = nil;
@@ -205,7 +215,7 @@ static NSString *mpUserAgent = nil;
         
         if (isIdentityRequest) { // /identify, /login, /logout, /<mpid>/modify
             contentType = @"application/json";
-            [urlRequest setValue:[MPStateMachine sharedInstance].apiKey forHTTPHeaderField:@"x-mp-key"];
+            [urlRequest setValue:[MParticle sharedInstance].stateMachine.apiKey forHTTPHeaderField:@"x-mp-key"];
             NSString *postDataString = [[NSString alloc] initWithData:_postData encoding:NSUTF8StringEncoding];
             signatureMessage = [NSString stringWithFormat:@"%@\n%@\n%@%@", _httpMethod, date, relativePath, postDataString];
         } else if (containsMessage) { // /events
@@ -217,7 +227,7 @@ static NSString *mpUserAgent = nil;
                 kits = nil;
             }
             
-            NSArray<id<MPExtensionKitProtocol>> *activeKitsRegistry = [[MPKitContainer sharedInstance] activeKitsRegistry];
+            NSArray<id<MPExtensionKitProtocol>> *activeKitsRegistry = [[MParticle sharedInstance].kitContainer activeKitsRegistry];
             if (activeKitsRegistry.count > 0) {
                 NSMutableArray<NSNumber *> *activeKitIds = [[NSMutableArray alloc] initWithCapacity:activeKitsRegistry.count];
                 
@@ -260,7 +270,7 @@ static NSString *mpUserAgent = nil;
             }
         }
         
-        NSString *hmacSha256Encode = [self hmacSha256Encode:signatureMessage key:[MPStateMachine sharedInstance].secret];
+        NSString *hmacSha256Encode = [self hmacSha256Encode:signatureMessage key:[MParticle sharedInstance].stateMachine.secret];
         if (hmacSha256Encode) {
             [urlRequest setValue:hmacSha256Encode forHTTPHeaderField:@"x-mp-signature"];
         }

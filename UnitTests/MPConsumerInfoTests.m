@@ -1,6 +1,7 @@
 #import <XCTest/XCTest.h>
 #import "MPConsumerInfo.h"
 #import "MPIConstants.h"
+#import "MPBaseTestCase.h"
 
 #pragma mark - MPConsumerInfo(Tests)
 @interface MPConsumerInfo(Tests)
@@ -11,7 +12,7 @@
 
 
 #pragma mark - MPConsumerInfoTests
-@interface MPConsumerInfoTests : XCTestCase {
+@interface MPConsumerInfoTests : MPBaseTestCase {
     NSDictionary *responseDictionary;
     NSDictionary *consumerInfoDictionary;
 }
@@ -61,8 +62,7 @@
 
 - (void)testInstance {
     MPConsumerInfo *consumerInfo = [[MPConsumerInfo alloc] init];
-//    XCTAssertNotNil(consumerInfo.mpId, @"Should not have been nil.");
-
+    
     [consumerInfo updateWithConfiguration:consumerInfoDictionary];
     XCTAssertNotNil(consumerInfo, @"Consumer info instance should not have been nil.");
     
@@ -70,9 +70,6 @@
     XCTAssertNotNil(consumerInfoData, @"Should not have been nil.");
     MPConsumerInfo *deserializedConsumerInfo = [NSKeyedUnarchiver unarchiveObjectWithData:consumerInfoData];
     XCTAssertNotNil(deserializedConsumerInfo, @"Should not have been nil.");
-    
-//    NSNumber *mpId = [consumerInfo generateMpId];
-//    XCTAssertNotNil(mpId, @"Should not have been nil.");
     
     consumerInfo = [[MPConsumerInfo alloc] init];
     [consumerInfo updateWithConfiguration:@{}];
@@ -221,6 +218,14 @@
     configuration = nil;
     cookie = [[MPCookie alloc] initWithName:name configuration:configuration];
     XCTAssertNil(cookie, @"Should have been nil.");
+}
+
+- (void)testConsumerInfoEncoding {
+    MPConsumerInfo *consumerInfo = [[MPConsumerInfo alloc] init];
+    [consumerInfo updateWithConfiguration:consumerInfoDictionary];
+    
+    MPConsumerInfo *persistedConsumerInfo = [self attemptSecureEncodingwithClass:[MPConsumerInfo class] Object:consumerInfo];
+    XCTAssertEqualObjects(consumerInfo.uniqueIdentifier, persistedConsumerInfo.uniqueIdentifier, @"Consumer Info should have been a match.");
 }
 
 @end

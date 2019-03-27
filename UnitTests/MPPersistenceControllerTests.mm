@@ -7,7 +7,6 @@
 #import "MPSegmentMembership.h"
 #import "MPIConstants.h"
 #import "MPMessageBuilder.h"
-#import "MParticleUserNotification.h"
 #import "MPIntegrationAttributes.h"
 #import "MPConsumerInfo.h"
 #import "MPForwardRecord.h"
@@ -16,10 +15,20 @@
 #import "MPUploadBuilder.h"
 #import "sqlite3.h"
 #import "MPIUserDefaults.h"
+#import "MPBaseTestCase.h"
+#import "MPStateMachine.h"
 
 #define DATABASE_TESTS_EXPECTATIONS_TIMEOUT 1
 
-@interface MPPersistenceControllerTests : XCTestCase
+@interface MParticle ()
+
++ (dispatch_queue_t)messageQueue;
+@property (nonatomic, strong) MPPersistenceController *persistenceController;
+@property (nonatomic, strong) MPStateMachine *stateMachine;
+
+@end
+
+@interface MPPersistenceControllerTests : MPBaseTestCase
 
 @end
 
@@ -27,50 +36,37 @@
 
 - (void)setUp {
     [super setUp];
-    [MParticle sharedInstance];
-    [[MPPersistenceController sharedInstance] openDatabase];
+    
+    [MParticle sharedInstance].stateMachine = [[MPStateMachine alloc] init];
+    [MParticle sharedInstance].persistenceController = [[MPPersistenceController alloc] init];
 }
 
 - (void)tearDown {
-    MPPersistenceController *persistence = [MPPersistenceController sharedInstance];
-    [persistence deleteRecordsOlderThan:[[NSDate date] timeIntervalSince1970]];
-    [persistence closeDatabase];
     
     [super tearDown];
 }
 
-- (NSDictionary *)nonmParticleRemoteNotificationDictionary {
-    NSDictionary *remoteNotificationDictionary = @{@"aps":@{
-                                                           @"alert":@{
-                                                                   @"body":@"Your regular transportation has arrived.",
-                                                                   @"show-view":@NO
-                                                                   },
-                                                           @"badge":@1,
-                                                           @"sound":@"engine_sound.aiff"
-                                                           }
-                                                   };
-    
-    return remoteNotificationDictionary;
-}
-
 - (void)testMultiThreadedAccess {
     NSDate *startDate = [NSDate date];
-    NSDate *endDate = [startDate dateByAddingTimeInterval:1];
+    NSDate *endDate = [startDate dateByAddingTimeInterval:0.1];
     dispatch_block_t workBlock = ^{
         while (-[[NSDate date] timeIntervalSinceDate:endDate] > 0) {
             MPSession *session = [[MPSession alloc] initWithStartTime:[[NSDate date] timeIntervalSince1970] userId:[MPPersistenceController mpId]];
             
-            MPPersistenceController *persistence = [MPPersistenceController sharedInstance];
+            MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
             [persistence saveSession:session];
             NSMutableArray<MPSession *> *sessions = [persistence fetchSessions];
             [persistence deleteSession:session];
             sessions = [persistence fetchSessions];
         }
     };
+    XCTestExpectation *expectation = [self expectationWithDescription:@"async work"];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         workBlock();
+        [expectation fulfill];
     });
     workBlock();
+    [self waitForExpectationsWithTimeout:0.11 handler:nil];
 }
 
 - (void)testPlatformSqliteAssumptions {
@@ -78,7 +74,7 @@
     XCTAssertEqual(safe, 2);
     const char *version = sqlite3_libversion();
     NSString *stringVersion = [NSString stringWithCString:version encoding:NSUTF8StringEncoding];
-    XCTAssert([stringVersion isEqual:@"3.19.3"] || [stringVersion isEqual:@"3.22.0"]);
+    XCTAssert([stringVersion isEqual:@"3.19.3"] || [stringVersion isEqual:@"3.22.0"] || [stringVersion isEqual:@"3.16.0"] || [stringVersion isEqualToString:@"3.24.0"], @"%@", stringVersion);
 }
 
 - (void)testSession {
@@ -86,7 +82,7 @@
     MPSession *session = [[MPSession alloc] initWithStartTime:[[NSDate date] timeIntervalSince1970] userId:[MPPersistenceController mpId]];
     session.attributesDictionary = [@{@"key1":@"value1"} mutableCopy];
     
-    MPPersistenceController *persistence = [MPPersistenceController sharedInstance];
+    MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
     [persistence saveSession:session];
     
     XCTAssertTrue(session.sessionId > 0, @"Session id not greater than zero: %lld", session.sessionId);
@@ -108,7 +104,7 @@
 - (void)testMessage {
     [MPPersistenceController setMpid:@2];
     
-    MPPersistenceController *persistence = [MPPersistenceController sharedInstance];
+    MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
     
     MPSession *session = [[MPSession alloc] initWithStartTime:[[NSDate date] timeIntervalSince1970] userId:[MPPersistenceController mpId]];
     [persistence saveSession:session];
@@ -116,7 +112,7 @@
     MPMessageBuilder *messageBuilder = [MPMessageBuilder newBuilderWithMessageType:MPMessageTypeEvent
                                                                            session:session
                                                                        messageInfo:@{@"MessageKey1":@"MessageValue1"}];
-    MPMessage *message = (MPMessage *)[messageBuilder build];
+    MPMessage *message = [messageBuilder build];
     [persistence saveMessage:message];
     
     XCTAssertTrue(message.messageId > 0, @"Message id not greater than zero: %lld", message.messageId);
@@ -143,7 +139,7 @@
     
     [MPPersistenceController setMpid:@2];
     
-    MPPersistenceController *persistence = [MPPersistenceController sharedInstance];
+    MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
     
     MPSession *session = [[MPSession alloc] initWithStartTime:[[NSDate date] timeIntervalSince1970] userId:[MPPersistenceController mpId]];
     [persistence saveSession:session];
@@ -151,7 +147,7 @@
     MPMessageBuilder *messageBuilder = [MPMessageBuilder newBuilderWithMessageType:MPMessageTypeEvent
                                                                            session:session
                                                                        messageInfo:@{@"MessageKey1":@"MessageValue1"}];
-    MPMessage *message = (MPMessage *)[messageBuilder build];
+    MPMessage *message = [messageBuilder build];
     [persistence saveMessage:message];
     
     XCTAssertTrue(message.messageId > 0, @"Message id not greater than zero: %lld", message.messageId);
@@ -163,7 +159,7 @@
     
     XCTAssertEqualObjects(message, fetchedMessage, @"Message and fetchedMessage are not equal.");
     
-    [[MPPersistenceController sharedInstance] resetDatabase];
+    [[MParticle sharedInstance].persistenceController resetDatabase];
     
     messagesDictionary = [persistence fetchMessagesForUploading];
     messages = messagesDictionary[[MPPersistenceController mpId]];
@@ -181,7 +177,7 @@
     MPMessageBuilder *messageBuilder = [MPMessageBuilder newBuilderWithMessageType:MPMessageTypeEvent
                                                                            session:session
                                                                        messageInfo:@{@"MessageKey1":@"MessageValue1"}];
-    MPMessage *message = (MPMessage *)[messageBuilder build];
+    MPMessage *message = [messageBuilder build];
     
     NSDictionary *uploadDictionary = @{kMPOptOutKey:@NO,
                                        kMPSessionTimeoutKey:@120,
@@ -192,7 +188,7 @@
     
     MPUpload *upload = [[MPUpload alloc] initWithSessionId:[NSNumber numberWithLongLong:session.sessionId] uploadDictionary:uploadDictionary];
     
-    MPPersistenceController *persistence = [MPPersistenceController sharedInstance];
+    MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
     
     NSArray *nilArray = nil;
     [persistence saveUpload:upload messageIds:nilArray operation:MPPersistenceOperationFlag];
@@ -220,6 +216,75 @@
     [self waitForExpectationsWithTimeout:DATABASE_TESTS_EXPECTATIONS_TIMEOUT handler:nil];
 }
 
+- (void)testUploadWithOptOut {
+    XCTestExpectation *expectation = [self expectationWithDescription:@"Upload Opt Out test"];
+    [MParticle sharedInstance].stateMachine.optOut = YES;
+    
+    MPSession *session = [[MPSession alloc] initWithStartTime:[[NSDate date] timeIntervalSince1970] userId:[MPPersistenceController mpId]];
+    
+    MPMessageBuilder *messageBuilder = [MPMessageBuilder newBuilderWithMessageType:MPMessageTypeEvent
+                                                                           session:session
+                                                                       messageInfo:@{@"MessageKey1":@"MessageValue1"}];
+    MPMessage *message = [messageBuilder build];
+    
+    MPUploadBuilder *uploadBuilder = [[MPUploadBuilder alloc] initWithMpid:[MPPersistenceController mpId] sessionId:@(session.sessionId) messages:@[message] sessionTimeout:120 uploadInterval:10];
+    
+    [uploadBuilder build:^(MPUpload *upload) {        
+        MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
+        
+        NSArray *nilArray = nil;
+        [persistence saveUpload:upload messageIds:nilArray operation:MPPersistenceOperationFlag];
+                
+        NSArray<MPUpload *> *uploads = [persistence fetchUploads];
+        
+        XCTAssertTrue(uploads.count == 0, @"Uploads are not being blocked by OptOut.");
+        
+        [expectation fulfill];
+    }];
+    
+    [self waitForExpectationsWithTimeout:DATABASE_TESTS_EXPECTATIONS_TIMEOUT handler:nil];
+}
+
+- (void)testUploadWithOptOutMessage {
+    XCTestExpectation *expectation = [self expectationWithDescription:@"Upload Opt Out Message test"];
+    [MParticle sharedInstance].stateMachine.optOut = YES;
+    
+    MPSession *session = [[MPSession alloc] initWithStartTime:[[NSDate date] timeIntervalSince1970] userId:[MPPersistenceController mpId]];
+    
+    MPMessageBuilder *messageBuilder = [MPMessageBuilder newBuilderWithMessageType:MPMessageTypeOptOut session:session messageInfo:@{kMPOptOutStatus:(@"true")}];
+
+    MPMessage *message = [messageBuilder build];
+    
+    MPUploadBuilder *uploadBuilder = [[MPUploadBuilder alloc] initWithMpid:[MPPersistenceController mpId] sessionId:@(session.sessionId) messages:@[message] sessionTimeout:120 uploadInterval:10];
+    
+    [uploadBuilder build:^(MPUpload *upload) {
+        MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
+        
+        NSArray *nilArray = nil;
+        [persistence saveUpload:upload messageIds:nilArray operation:MPPersistenceOperationFlag];
+        
+        XCTAssertTrue(upload.uploadId > 0, @"Upload id not greater than zero: %lld", upload.uploadId);
+        
+        NSArray<MPUpload *> *uploads = [persistence fetchUploads];
+        MPUpload *fetchedUpload = [uploads lastObject];
+        
+        XCTAssertEqualObjects(upload, fetchedUpload, @"Opt Out event upload is being blocked by OptOut.");
+        
+        [persistence deleteUpload:upload];
+        
+        uploads = [persistence fetchUploads];
+        if (uploads) {
+            NSPredicate *predicate = [NSPredicate predicateWithFormat:@"uploadId == %lld", fetchedUpload.uploadId];
+            uploads = [uploads filteredArrayUsingPredicate:predicate];
+            XCTAssertTrue(uploads.count == 0, @"Upload is not being deleted.");
+        }
+        
+        [expectation fulfill];
+    }];
+    
+    [self waitForExpectationsWithTimeout:DATABASE_TESTS_EXPECTATIONS_TIMEOUT handler:nil];
+}
+
 - (void)testSegments {
     [MPPersistenceController setMpid:@2];
     
@@ -240,13 +305,15 @@
     
     MPSegment *segment = [[MPSegment alloc] initWithDictionary:segmentDictionary];
     
-    MPPersistenceController *persistence = [MPPersistenceController sharedInstance];
+    MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
     [persistence saveSegment:segment];
     
     XCTAssertTrue([segment.segmentId integerValue] > 0, @"Segment id not greater than zero: %@", segment.segmentId);
     
-    MPSegment *fetchedSegment = [[persistence fetchSegments] lastObject];
+    NSArray<MPSegment *> * fetchedSegments = [persistence fetchSegments];
+    MPSegment *fetchedSegment = [fetchedSegments lastObject];
     
+    XCTAssertEqual(fetchedSegments.count, 1);
     XCTAssertEqualObjects(segment, fetchedSegment, @"Segment and fetchedSegment are not equal.");
     
     [persistence deleteSegments];
@@ -258,48 +325,79 @@
         XCTAssertTrue(segments.count == 0, @"Segment is not being deleted.");
     }
 }
+- (void)testFetchIntegrationAttributesForKit {
+    NSNumber *integrationId = nil;
+    MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
 
-- (void)testIntegrationAttributes {
-    MPPersistenceController *persistence = [MPPersistenceController sharedInstance];
-    [persistence deleteIntegrationAttributesForKitCode:@42];
+    XCTAssertNil([persistence fetchIntegrationAttributesForId:integrationId]);
+    XCTAssertNil([persistence fetchIntegrationAttributesForId:@1000]);
+
+    MPIntegrationAttributes *integrationAttributes = [[MPIntegrationAttributes alloc] initWithIntegrationId:@1000
+                                                                                                  attributes:@{@"foo key 1":@"bar value 1",
+                                                                                                               @"foo key 2":@"bar value 2"
+                                                                                                               }];
+    [persistence saveIntegrationAttributes:integrationAttributes];
     
-    NSNumber *kitCode = @(MPKitInstanceUrbanAirship);
+    integrationAttributes = [[MPIntegrationAttributes alloc] initWithIntegrationId:@2000
+                                                                                                 attributes:@{@"foo key 3":@"bar value 3",
+                                                                                                              @"foo key 4":@"bar value 4"
+                                                                                                              }];
+    [persistence saveIntegrationAttributes:integrationAttributes];
+    
+    NSDictionary *storedAttributes = [persistence fetchIntegrationAttributesForId:@1000];
+    XCTAssertNotNil(storedAttributes);
+    XCTAssertEqual(2, storedAttributes.count);
+    XCTAssertEqualObjects(@"bar value 1", [storedAttributes objectForKey:@"foo key 1"]);
+    XCTAssertEqualObjects(@"bar value 2", [storedAttributes objectForKey:@"foo key 2"]);
+    
+    storedAttributes = [persistence fetchIntegrationAttributesForId:@2000];
+    XCTAssertNotNil(storedAttributes);
+    XCTAssertEqual(2, storedAttributes.count);
+    XCTAssertEqualObjects(@"bar value 3", [storedAttributes objectForKey:@"foo key 3"]);
+    XCTAssertEqualObjects(@"bar value 4", [storedAttributes objectForKey:@"foo key 4"]);
+    
+}
+- (void)testIntegrationAttributes {
+    MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
+    [persistence deleteIntegrationAttributesForIntegrationId:@42];
+    
+    NSNumber *integrationId = @(MPKitInstanceUrbanAirship);
     NSDictionary<NSString *, NSString *> *attributes = @{@"keyUA":@"valueUA"};
-    MPIntegrationAttributes *integrationAttributes1 = [[MPIntegrationAttributes alloc] initWithKitCode:kitCode attributes:attributes];
+    MPIntegrationAttributes *integrationAttributes1 = [[MPIntegrationAttributes alloc] initWithIntegrationId:integrationId attributes:attributes];
     [persistence saveIntegrationAttributes:integrationAttributes1];
     NSArray *integrationAttributesArray = [persistence fetchIntegrationAttributes];
     XCTAssertNotNil(integrationAttributesArray);
     XCTAssertEqual(integrationAttributesArray.count, 1);
     
-    kitCode = @(MPKitInstanceButton);
+    integrationId = @(MPKitInstanceButton);
     attributes = @{@"keyButton":@"valueButton"};
-    MPIntegrationAttributes *integrationAttributes2 = [[MPIntegrationAttributes alloc] initWithKitCode:kitCode attributes:attributes];
+    MPIntegrationAttributes *integrationAttributes2 = [[MPIntegrationAttributes alloc] initWithIntegrationId:integrationId attributes:attributes];
     [persistence saveIntegrationAttributes:integrationAttributes2];
     integrationAttributesArray = [persistence fetchIntegrationAttributes];
     XCTAssertNotNil(integrationAttributesArray);
     XCTAssertEqual(integrationAttributesArray.count, 2);
     
-    kitCode = @(MPKitInstanceButton);
+    integrationId = @(MPKitInstanceButton);
     attributes = @{@"keyButton2":@"valueButton2"};
-    integrationAttributes2 = [[MPIntegrationAttributes alloc] initWithKitCode:kitCode attributes:attributes];
+    integrationAttributes2 = [[MPIntegrationAttributes alloc] initWithIntegrationId:integrationId attributes:attributes];
     [persistence saveIntegrationAttributes:integrationAttributes2];
     integrationAttributesArray = [persistence fetchIntegrationAttributes];
     XCTAssertNotNil(integrationAttributesArray);
     XCTAssertEqual(integrationAttributesArray.count, 2);
     
-    [persistence deleteIntegrationAttributes:integrationAttributes2];
+    [persistence deleteIntegrationAttributesForIntegrationId:integrationId];
     integrationAttributesArray = [persistence fetchIntegrationAttributes];
     XCTAssertNotNil(integrationAttributesArray);
     XCTAssertEqual(integrationAttributesArray.count, 1);
     
-    kitCode = @(MPKitInstanceUrbanAirship);
-    [persistence deleteIntegrationAttributesForKitCode:kitCode];
+    integrationId = @(MPKitInstanceUrbanAirship);
+    [persistence deleteIntegrationAttributesForIntegrationId:integrationId];
     integrationAttributesArray = [persistence fetchIntegrationAttributes];
     XCTAssertNil(integrationAttributesArray);
     
-    kitCode = @(MPKitInstanceButton);
+    integrationId = @(MPKitInstanceButton);
     attributes = @{@"keyButton":@"valueButton"};
-    integrationAttributes2 = [[MPIntegrationAttributes alloc] initWithKitCode:kitCode attributes:attributes];
+    integrationAttributes2 = [[MPIntegrationAttributes alloc] initWithIntegrationId:integrationId attributes:attributes];
     [persistence saveIntegrationAttributes:integrationAttributes2];
     integrationAttributesArray = [persistence fetchIntegrationAttributes];
     XCTAssertNotNil(integrationAttributesArray);
@@ -336,42 +434,48 @@
                                              @"mpid":@2
                                              };
     
-    MPConsumerInfo *consumerInfo = [[MPConsumerInfo alloc] init];
+    __block MPConsumerInfo *consumerInfo = [[MPConsumerInfo alloc] init];
     [consumerInfo updateWithConfiguration:consumerInfoDictionary];
     
-    MPPersistenceController *persistence = [MPPersistenceController sharedInstance];
+    MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
     [persistence saveConsumerInfo:consumerInfo];
     
-    MPConsumerInfo *fetchedConsumerInfo = [persistence fetchConsumerInfoForUserId:[MPPersistenceController mpId]];
-    XCTAssertNotNil(fetchedConsumerInfo);
-    
-    NSDictionary *cookiesDictionary = [consumerInfo cookiesDictionaryRepresentation];
-    NSDictionary *fetchedCookiesDictionary = [fetchedConsumerInfo cookiesDictionaryRepresentation];
-    XCTAssertEqualObjects(cookiesDictionary, fetchedCookiesDictionary);
-    
-    [persistence deleteConsumerInfo];
-    fetchedConsumerInfo = [persistence fetchConsumerInfoForUserId:[MPPersistenceController mpId]];
-    XCTAssertNil(fetchedConsumerInfo);
-    
-    consumerInfo = [[MPConsumerInfo alloc] init];
-    [consumerInfo updateWithConfiguration:consumerInfoDictionary];
-    [persistence saveConsumerInfo:consumerInfo];
-    [persistence updateConsumerInfo:consumerInfo];
-    
-    consumerInfo = [persistence fetchConsumerInfoForUserId:[MPPersistenceController mpId]];
-    XCTAssertNotNil(consumerInfo);
-    [persistence deleteConsumerInfo];
+    XCTestExpectation *expectation = [self expectationWithDescription:@"Consumer Info"];
+
+    dispatch_sync([MParticle messageQueue], ^{
+        MPConsumerInfo *fetchedConsumerInfo = [persistence fetchConsumerInfoForUserId:[MPPersistenceController mpId]];
+        XCTAssertNotNil(fetchedConsumerInfo);
+        
+        NSDictionary *cookiesDictionary = [consumerInfo cookiesDictionaryRepresentation];
+        NSDictionary *fetchedCookiesDictionary = [fetchedConsumerInfo cookiesDictionaryRepresentation];
+        XCTAssertEqualObjects(cookiesDictionary, fetchedCookiesDictionary);
+        
+        [persistence deleteConsumerInfo];
+        fetchedConsumerInfo = [persistence fetchConsumerInfoForUserId:[MPPersistenceController mpId]];
+        XCTAssertNil(fetchedConsumerInfo);
+        
+        consumerInfo = [[MPConsumerInfo alloc] init];
+        [consumerInfo updateWithConfiguration:consumerInfoDictionary];
+        [persistence saveConsumerInfo:consumerInfo];
+        [persistence updateConsumerInfo:consumerInfo];
+        
+        consumerInfo = [persistence fetchConsumerInfoForUserId:[MPPersistenceController mpId]];
+        XCTAssertNotNil(consumerInfo);
+        [persistence deleteConsumerInfo];
+        
+        [expectation fulfill];
+    });
+    [self waitForExpectationsWithTimeout:10 handler:nil];
 }
 
 - (void)testForwardRecord {
-    [[MParticle sharedInstance] clearMParticleData];
     MPKitExecStatus *execStatus = [[MPKitExecStatus alloc] initWithSDKCode:@(MPKitInstanceAppboy) returnCode:MPKitReturnCodeSuccess];
     
     MPForwardRecord *forwardRecord = [[MPForwardRecord alloc] initWithMessageType:MPMessageTypePushRegistration
                                                                        execStatus:execStatus
                                                                         stateFlag:YES];
     
-    MPPersistenceController *persistence = [MPPersistenceController sharedInstance];
+    MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
     [persistence saveForwardRecord:forwardRecord];
     
     NSArray<MPForwardRecord *> *forwardRecords = [persistence fetchForwardRecords];
@@ -394,6 +498,27 @@
     
     forwardRecords = [persistence fetchForwardRecords];
     XCTAssertNil(forwardRecords);
+}
+
+- (void)testTooLargeMessageSaving {
+    NSString *longString = @"a";
+    while (longString.length < 100001) {
+        longString = [NSString stringWithFormat:@"%@%@", longString, longString];
+    }
+    MPSession *session = [[MPSession alloc] initWithStartTime:[[NSDate date] timeIntervalSince1970] userId:[MPPersistenceController mpId]];
+    MPMessageBuilder *messageBuilder = [MPMessageBuilder newBuilderWithMessageType:MPMessageTypeEvent
+                                                                           session:session
+                                                                       messageInfo:@{@"MessageKey1":longString}];
+    MPMessage *message = [messageBuilder build];
+    
+    MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
+    NSArray *messages = [persistence fetchMessagesInSession:session userId:[MPPersistenceController mpId]];
+    [persistence deleteMessages:messages];
+    
+    [persistence saveMessage:message];
+    messages = [persistence fetchMessagesInSession:session userId:[MPPersistenceController mpId]];
+    
+    XCTAssertEqual(messages.count, 0);
 }
 
 @end

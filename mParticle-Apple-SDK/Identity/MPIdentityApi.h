@@ -11,17 +11,34 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@interface MPIdentityChange : NSObject
+
+@property(nonatomic, strong, readwrite, nonnull) MParticleUser *changedUser;
+@property(nonatomic) MPUserIdentity changedIdentity;
+
+@end
+
 @interface MPIdentityApiResult : NSObject
 
 @property(nonatomic, strong, readwrite, nonnull) MParticleUser *user;
 
 @end
 
+@interface MPModifyApiResult : MPIdentityApiResult
+
+@property(nonatomic, strong, readwrite, nonnull) NSArray<MPIdentityChange *> *identityChanges;
+
+@end
+
 typedef void (^MPIdentityApiResultCallback)(MPIdentityApiResult *_Nullable apiResult, NSError *_Nullable error);
+
+typedef void (^MPModifyApiResultCallback)(MPModifyApiResult *_Nullable apiResult, NSError *_Nullable error);
 
 @interface MPIdentityApi : NSObject
 
 @property(nonatomic, strong, readonly, nullable) MParticleUser *currentUser;
+
+@property(nonatomic, strong, readonly, nonnull) NSString *deviceApplicationStamp;
 
 - (nullable MParticleUser *)getUser:(NSNumber *)mpId;
 
@@ -39,7 +56,7 @@ typedef void (^MPIdentityApiResultCallback)(MPIdentityApiResult *_Nullable apiRe
 
 - (void)logoutWithCompletion:(nullable MPIdentityApiResultCallback)completion;
 
-- (void)modify:(MPIdentityApiRequest *)modifyRequest completion:(nullable MPIdentityApiResultCallback)completion;
+- (void)modify:(MPIdentityApiRequest *)modifyRequest completion:(nullable MPModifyApiResultCallback)completion;
 
 @end
 

@@ -7,6 +7,7 @@
 #import <UIKit/UIKit.h>
 #import "MPStateMachine.h"
 #import "MPSearchAdsAttribution.h"
+#import "MParticle.h"
 
 NSString *const kMPApplicationInformationKey = @"ai";
 NSString *const kMPApplicationNameKey = @"an";
@@ -31,6 +32,12 @@ NSString *const kMPAppStoreReceiptKey = @"asr";
 
 static NSString *kMPAppStoreReceiptString = nil;
 
+@interface MParticle ()
+
+@property (nonatomic, strong, readonly) MPStateMachine *stateMachine;
+
+@end
+
 @interface MPApplication() {
     NSDictionary *appInfo;
     MPIUserDefaults *userDefaults;
@@ -47,15 +54,6 @@ static NSString *kMPAppStoreReceiptString = nil;
 @synthesize environment = _environment;
 @synthesize initialLaunchTime = _initialLaunchTime;
 @synthesize pirated = _pirated;
-
-+ (void)initialize {
-    NSURL *url = [[NSBundle mainBundle] appStoreReceiptURL];
-    NSData *appStoreReceiptData = [NSData dataWithContentsOfURL:url];
-    
-    if (appStoreReceiptData) {
-        kMPAppStoreReceiptString = [appStoreReceiptData base64EncodedStringWithOptions:0];
-    }
-}
 
 - (id)init {
     self = [super init];
@@ -150,7 +148,7 @@ static NSString *kMPAppStoreReceiptString = nil;
 }
 
 - (NSNumber *)firstSeenInstallation {
-    return [MPStateMachine sharedInstance].firstSeenInstallation;
+    return [MParticle sharedInstance].stateMachine.firstSeenInstallation;
 }
 
 - (NSNumber *)initialLaunchTime {
@@ -177,7 +175,7 @@ static NSString *kMPAppStoreReceiptString = nil;
 - (NSNumber *)lastUseDate {
     NSNumber *lastUseDate = userDefaults[kMPAppLastUseDateKey];
     if (lastUseDate == nil) {
-        lastUseDate = MPMilliseconds([[MPStateMachine sharedInstance].launchDate timeIntervalSince1970]);
+        lastUseDate = MPMilliseconds([[MParticle sharedInstance].stateMachine.launchDate timeIntervalSince1970]);
     }
     
     return lastUseDate;
@@ -316,8 +314,7 @@ static NSString *kMPAppStoreReceiptString = nil;
 #endif
 
 - (NSDictionary *)searchAdsAttribution {
-    MPSearchAdsAttribution *searchAttribution = [MPStateMachine sharedInstance].searchAttribution;
-    return [searchAttribution dictionaryRepresentation];
+    return MParticle.sharedInstance.stateMachine.searchAdsInfo;
 }
 
 #pragma mark NSCopying
@@ -336,6 +333,15 @@ static NSString *kMPAppStoreReceiptString = nil;
 
 #pragma mark Class methods
 + (NSString *)appStoreReceipt {
+    if (MPIsNull(kMPAppStoreReceiptString)) {
+        NSURL *url = [[NSBundle mainBundle] appStoreReceiptURL];
+        NSData *appStoreReceiptData = [NSData dataWithContentsOfURL:url];
+        
+        if (appStoreReceiptData) {
+            kMPAppStoreReceiptString = [appStoreReceiptData base64EncodedStringWithOptions:0];
+        }
+    }
+    
     return kMPAppStoreReceiptString;
 }
 
@@ -456,8 +462,8 @@ static NSString *kMPAppStoreReceiptString = nil;
         applicationInfo[kMPAppBuildNumberKey] = auxString;
     }
     
-    if (kMPAppStoreReceiptString) {
-        applicationInfo[kMPAppStoreReceiptKey] = kMPAppStoreReceiptString;
+    if ([MParticle sharedInstance].stateMachine.allowASR && [MPApplication appStoreReceipt]) {
+        applicationInfo[kMPAppStoreReceiptKey] = [MPApplication appStoreReceipt];
     }
     
 #if TARGET_OS_IOS == 1

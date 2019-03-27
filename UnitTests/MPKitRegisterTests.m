@@ -2,15 +2,16 @@
 #import "MPKitRegister.h"
 #import "MPKitProtocol.h"
 #import "MPKitTestClassNoStartImmediately.h"
+#import "MPBaseTestCase.h"
 
-@interface MPKitRegisterTests : XCTestCase
+@interface MPKitRegisterTests : MPBaseTestCase
 
 @end
 
 @implementation MPKitRegisterTests
 
 - (void)setUp {
-    [super setUp];
+    [super setUp];    
 }
 
 - (void)tearDown {

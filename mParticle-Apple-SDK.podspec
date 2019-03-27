@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
     s.name             = "mParticle-Apple-SDK"
-    s.version          = "7.4.2"
+    s.version          = "7.9.1"
     s.summary          = "mParticle Apple SDK."
 
     s.description      = <<-DESC
@@ -66,9 +66,6 @@ Pod::Spec.new do |s|
         ext.ios.weak_frameworks  = 'iAd', 'UserNotifications'
 
         ext.tvos.frameworks      = 'AdSupport', 'CoreGraphics', 'Foundation', 'Security', 'SystemConfiguration', 'UIKit'
-
-	# For app extensions, disabling code paths using unavailable API
-	ext.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => 'MPARTICLE_APP_EXTENSIONS=1' }
     end
 end
 

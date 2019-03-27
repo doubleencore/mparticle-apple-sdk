@@ -8,8 +8,17 @@
 #import "MPStateMachine.h"
 #import "MPIntegrationAttributes.h"
 #import "MPPersistenceController.h"
+#import "MPBaseTestCase.h"
+#import "mParticle.h"
 
-@interface MPUploadBuilderTests : XCTestCase
+@interface MParticle ()
+
+@property (nonatomic, strong) MPPersistenceController *persistenceController;
+@property (nonatomic, strong) MPStateMachine *stateMachine;
+
+@end
+
+@interface MPUploadBuilderTests : MPBaseTestCase
 
 @end
 
@@ -18,25 +27,28 @@
 - (void)setUp {
     [super setUp];
     
-    MPPersistenceController *persistence = [MPPersistenceController sharedInstance];
+    [MParticle sharedInstance].stateMachine = [[MPStateMachine alloc] init];
+
+    [MParticle sharedInstance].persistenceController = [[MPPersistenceController alloc] init];
+    MPPersistenceController *persistence = [MParticle sharedInstance].persistenceController;
     
-    NSNumber *kitCode = @(MPKitInstanceUrbanAirship);
+    NSNumber *integrationId = @(MPKitInstanceUrbanAirship);
     NSDictionary<NSString *, NSString *> *attributes = @{@"clientID":@"123abc",
                                                          @"key":@"value"};
     
-    MPIntegrationAttributes *integrationAttributes = [[MPIntegrationAttributes alloc] initWithKitCode:kitCode attributes:attributes];
+    MPIntegrationAttributes *integrationAttributes = [[MPIntegrationAttributes alloc] initWithIntegrationId:integrationId attributes:attributes];
     [persistence saveIntegrationAttributes:integrationAttributes];
 
-    kitCode = @(MPKitInstanceButton);
+    integrationId = @(MPKitInstanceButton);
     attributes = @{@"keyB":@"valueB"};
-    integrationAttributes = [[MPIntegrationAttributes alloc] initWithKitCode:kitCode attributes:attributes];
+    integrationAttributes = [[MPIntegrationAttributes alloc] initWithIntegrationId:integrationId attributes:attributes];
     [persistence saveIntegrationAttributes:integrationAttributes];
 }
 
 - (void)tearDown {
     [super tearDown];
     
-    [[MPPersistenceController sharedInstance] deleteAllIntegrationAttributes];
+    [[MParticle sharedInstance].persistenceController deleteAllIntegrationAttributes];
 }
 
 - (void)configureCustomModules {
@@ -95,7 +107,7 @@
                                                                   ]
                                                           }];
     
-    [[MPStateMachine sharedInstance] configureCustomModules:customModuleSettings];
+    [[MParticle sharedInstance].stateMachine configureCustomModules:customModuleSettings];
 }
 
 - (void)testInstanceWithSession {
@@ -114,7 +126,7 @@
                                                                        messageInfo:messageInfo];
     
     messageBuilder = [messageBuilder withTimestamp:[[NSDate date] timeIntervalSince1970]];
-    MPMessage *message = (MPMessage *)[messageBuilder build];
+    MPMessage *message = [messageBuilder build];
     
     MPUploadBuilder *uploadBuilder = [MPUploadBuilder    newBuilderWithMpid:[MPPersistenceController mpId]
                                                                     sessionId:[NSNumber numberWithLong:session.sessionId]
@@ -181,7 +193,7 @@
                                                                        messageInfo:messageInfo];
     
     messageBuilder = [messageBuilder withTimestamp:[[NSDate date] timeIntervalSince1970]];
-    MPMessage *message = (MPMessage *)[messageBuilder build];
+    MPMessage *message = [messageBuilder build];
     
     MPUploadBuilder *uploadBuilder = [MPUploadBuilder newBuilderWithMpid:[MPPersistenceController mpId] messages:@[message] uploadInterval:DEFAULT_DEBUG_UPLOAD_INTERVAL];
     

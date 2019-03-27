@@ -2,8 +2,10 @@
 #import "MPCart.h"
 #import "MPCart+Tests.h"
 #import "MPProduct.h"
+#import "MPBaseTestCase.h"
 
-@interface MPCartTests : XCTestCase
+@interface MPCartTests : MPBaseTestCase
+@property (nonatomic, strong, readonly, nullable) NSString *testFile;
 
 @end
 
@@ -14,6 +16,8 @@
 @end
 
 @implementation MPCartTests
+
+@synthesize testFile = _testFile;
 
 - (void)setUp {
     [super setUp];
@@ -59,6 +63,25 @@
     
     [cart clear];
     XCTAssertEqual(cart.products.count, 0, @"There should have been no products in the cart.");
+}
+
+- (void)testCartEncoding {
+    MPCart *cart = [[MPCart alloc] initWithUserId:@123];
+    MPProduct *product = [[MPProduct alloc] initWithName:@"DeLorean" sku:@"OutATime" quantity:@1 price:@4.32];
+    [cart addProducts:@[product] logEvent:NO updateProductList:YES];
+    
+    MPCart *persistedCart = [self attemptSecureEncodingwithClass:[MPCart class] Object:cart];
+    XCTAssertEqualObjects(cart.products, persistedCart.products, @"Cart products should have been a match.");
+    
+    [cart clear];
+    XCTAssertEqual(cart.products.count, 0, @"There should have been no products in the cart.");
+}
+
+- (void)testProductEncoding {
+    MPProduct *product = [[MPProduct alloc] initWithName:@"DeLorean" sku:@"OutATime" quantity:@1 price:@4.32];
+    
+    MPProduct *persistedProduct = [self attemptSecureEncodingwithClass:[MPProduct class] Object:product];
+    XCTAssertEqualObjects(product, persistedProduct, @"Product should have been a match.");
 }
 
 @end

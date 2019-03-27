@@ -6,8 +6,16 @@
 #import "MPBreadcrumb.h"
 #import "MPStateMachine.h"
 #import "MPPersistenceController.h"
+#import "MPBaseTestCase.h"
+#import "MParticle.h"
 
-@interface MPDataModelTests : XCTestCase
+@interface MParticle ()
+
+@property (nonatomic, strong) MPStateMachine *stateMachine;
+
+@end
+
+@interface MPDataModelTests : MPBaseTestCase
 
 @end
 
@@ -16,7 +24,8 @@
 - (void)setUp {
     [super setUp];
     
-    MPStateMachine *stateMachine = [MPStateMachine sharedInstance];
+    [MParticle sharedInstance].stateMachine = [[MPStateMachine alloc] init];
+    MPStateMachine *stateMachine = [MParticle sharedInstance].stateMachine;
     stateMachine.apiKey = @"unit_test_app_key";
     stateMachine.secret = @"unit_test_secret";
 }
@@ -67,7 +76,7 @@
                                                                        messageInfo:@{@"MessageKey1":@"MessageValue1"}];
     XCTAssertNotNil(messageBuilder, @"Should not have been nil.");
     
-    MPMessage *message = (MPMessage *)[messageBuilder build];
+    MPMessage *message = [messageBuilder build];
     XCTAssertNotNil(message, @"Should not have been nil.");
     
     NSString *description = [message description];
@@ -99,7 +108,7 @@
     MPMessageBuilder *messageBuilder = [MPMessageBuilder newBuilderWithMessageType:MPMessageTypeEvent
                                                                            session:session
                                                                        messageInfo:@{@"MessageKey1":@"MessageValue1"}];
-    MPMessage *message = (MPMessage *)[messageBuilder build];
+    MPMessage *message = [messageBuilder build];
     
     NSDictionary *uploadDictionary = @{kMPOptOutKey:@NO,
                                        kMPSessionTimeoutKey:@120,
@@ -141,7 +150,7 @@
     MPMessageBuilder *messageBuilder = [MPMessageBuilder newBuilderWithMessageType:MPMessageTypeEvent
                                                                            session:session
                                                                        messageInfo:@{@"MessageKey1":@"MessageValue1"}];
-    MPMessage *message = (MPMessage *)[messageBuilder build];
+    MPMessage *message = [messageBuilder build];
     
     MPBreadcrumb *breadcrumb = [[MPBreadcrumb alloc] initWithSessionUUID:session.uuid
                                                             breadcrumbId:0
@@ -181,6 +190,41 @@
     
     NSDictionary *dictionaryRepresentation = [breadcrumb dictionaryRepresentation];
     XCTAssertNotNil(dictionaryRepresentation, @"Should not have been nil.");
+}
+
+- (void)testMessageEncoding {
+    MPSession *session = [[MPSession alloc] initWithStartTime:[[NSDate date] timeIntervalSince1970] userId:[MPPersistenceController mpId]];
+    
+    MPMessageBuilder *messageBuilder = [MPMessageBuilder newBuilderWithMessageType:MPMessageTypeEvent
+                                                                           session:session
+                                                                       messageInfo:@{@"MessageKey1":@"MessageValue1"}];
+    MPMessage *message = [messageBuilder build];
+    
+    XCTAssertNotNil(message, @"Should not have been nil.");
+    
+    
+    MPMessage *persistedMessage = [self attemptSecureEncodingwithClass:[MPMessage class] Object:message];
+    XCTAssertEqualObjects(message, persistedMessage, @"Message should have been a match.");
+}
+
+- (void)testBreadcrumbEncoding {
+    MPSession *session = [[MPSession alloc] initWithStartTime:[[NSDate date] timeIntervalSince1970] userId:[MPPersistenceController mpId]];
+    
+    MPMessageBuilder *messageBuilder = [MPMessageBuilder newBuilderWithMessageType:MPMessageTypeEvent
+                                                                           session:session
+                                                                       messageInfo:@{@"MessageKey1":@"MessageValue1"}];
+    MPMessage *message = [messageBuilder build];
+    
+    MPBreadcrumb *breadcrumb = [[MPBreadcrumb alloc] initWithSessionUUID:session.uuid
+                                                            breadcrumbId:0
+                                                                    UUID:[[NSUUID UUID] UUIDString]
+                                                          breadcrumbData:message.messageData
+                                                               timestamp:[[NSDate date] timeIntervalSince1970]];
+    XCTAssertNotNil(breadcrumb, @"Should not have been nil.");
+
+    
+    MPBreadcrumb *persistedBreadcrumb = [self attemptSecureEncodingwithClass:[MPBreadcrumb class] Object:breadcrumb];
+    XCTAssertEqualObjects(breadcrumb, persistedBreadcrumb, @"Breadcrumb should have been a match.");
 }
 
 @end

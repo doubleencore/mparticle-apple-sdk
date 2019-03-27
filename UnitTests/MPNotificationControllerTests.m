@@ -4,8 +4,9 @@
 #import "MPNotificationController+Tests.h"
 #import "MPIConstants.h"
 #import "MParticleUserNotification.h"
+#import "MPBaseTestCase.h"
 
-@interface MPNotificationControllerTests : XCTestCase <MPNotificationControllerDelegate>
+@interface MPNotificationControllerTests : MPBaseTestCase
 
 @property (nonatomic, strong) MPNotificationController *notificationController;
 @property (nonatomic, strong) MParticleUserNotification *userNotification;
@@ -32,7 +33,7 @@
         return _notificationController;
     }
     
-    _notificationController = [[MPNotificationController alloc] initWithDelegate:self];
+    _notificationController = [[MPNotificationController alloc] init];
     
     return _notificationController;
 }
@@ -78,20 +79,6 @@
     return remoteNotificationDictionary;
 }
 
-- (NSDictionary *)nonmParticleRemoteNotificationDictionary {
-    NSDictionary *remoteNotificationDictionary = @{@"aps":@{
-                                                           @"alert":@{
-                                                                   @"body":@"Your regular transportation has arrived.",
-                                                                   @"show-view":@NO
-                                                                   },
-                                                           @"badge":@1,
-                                                           @"sound":@"engine_sound.aiff"
-                                                           }
-                                                   };
-    
-    return remoteNotificationDictionary;
-}
-
 - (NSArray *)retrieveDisplayedUserNotificationsSince:(NSTimeInterval)referenceDate mode:(MPUserNotificationMode)mode {
     return @[self.userNotification];
 }
@@ -102,20 +89,6 @@
 
 - (void)receivedUserNotification:(MParticleUserNotification *)userNotification {
     self.userNotification = userNotification;
-}
-
-- (void)testDidFinishLaunchingWithRemoteNotification {
-    NSDictionary *remoteNotificationDictionary = [self remoteNotificationDictionary:NO];
-    
-    NSNotification *notification = [[NSNotification alloc] initWithName:@"Testing did finish launching"
-                                                                 object:nil
-                                                               userInfo:@{UIApplicationLaunchOptionsRemoteNotificationKey:remoteNotificationDictionary}];
-    
-    [self.notificationController handleApplicationDidFinishLaunching:notification];
-    
-    XCTAssertNotNil(self.userNotification, @"User notification should not have been nil.");
-    XCTAssertNotNil(self.userNotification.redactedUserNotificationString, @"Redacted notification should not have been nil.");
-    XCTAssertEqual(self.userNotification.behavior, (MPUserNotificationBehaviorReceived | MPUserNotificationBehaviorRead), @"Behavior is incorrect.");
 }
 
 @end

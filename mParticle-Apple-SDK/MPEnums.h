@@ -141,6 +141,8 @@ typedef NS_ENUM(NSUInteger, MPKitInstance) {
     MPKitInstanceKochava = 37,
     /** Kit code for comScore */
     MPKitInstanceComScore = 39,
+    /** Kit code for Optimizely */
+    MPKitInstanceOptimizely = 54,
     /** Kit code for Kahuna */
     MPKitInstanceKahuna = 56,
     /** Kit code for Nielsen */
@@ -171,6 +173,8 @@ typedef NS_ENUM(NSUInteger, MPKitInstance) {
     MPKitInstanceCarnival = 99,
     /** Kit code for Primer */
     MPKitInstancePrimer = 100,
+    /** Kit code for Responsys */
+    MPKitInstanceResponsys = 102,
     /** Kit code for Apptimize */
     MPKitInstanceApptimize = 105,
     /** Kit code for Reveal Mobile */
@@ -188,7 +192,17 @@ typedef NS_ENUM(NSUInteger, MPKitInstance) {
     /** Kit code for Adobe */
     MPKitInstanceAdobe = 124,
     /** Kit code for Instabot */
-    MPKitInstanceInstabot = 123
+    MPKitInstanceInstabot = 123,
+    /** Kit code for Appsee */
+    MPKitInstanceAppsee = 126,
+    /** Kit code for Taplytics */
+    MPKitInstanceTaplytics = 129,
+    /** Kit code for CleverTap */
+    MPKitInstanceCleverTap = 135,
+    /** Kit code for Pilgrim */
+    MPKitInstancePilgrim = 211,
+    /** Kit code for Google Analytics for Firebase */
+    MPKitInstanceGoogleAnalyticsFirebase = 136
 };
 
 /// Log Levels
@@ -267,6 +281,8 @@ typedef NS_ENUM(NSUInteger, MPIdentityErrorResponseCode) {
     MPIdentityErrorResponseCodeClientNoConnection = 3,
     /** Client side error: SSL connection failed to be established due to invalid server certificate. mParticle performs SSL pinning - you cannot use a proxy to read traffic. */
     MPIdentityErrorResponseCodeSSLError = 3,
+    /** Client side error: User has enabled OptOut. */
+    MPIdentityErrorResponseCodeOptOut = 4,
     /** HTTP Error 401: Unauthorized. Ensure that you've initialized the mParticle SDK with a valid workspace key and secret. */
     MPIdentityErrorResponseCodeUnauthorized = 401,
     /** HTTP Error 504: Identity request should be retried */
@@ -294,6 +310,12 @@ extern NSString * _Nonnull const mParticleSessionDidEndNotification;
  of this key is the id of the session.
  */
 extern NSString * _Nonnull const mParticleSessionId;
+
+/** This constant is used as key for the userInfo dictionary in the
+ mParticleSessionDidBeginNotification and mParticleSessionDidEndNotification notifications. The value
+ of this key is the UUID of the session.
+ */
+extern NSString * _Nonnull const mParticleSessionUUID;
 
 /** Posted immediately after the SDK becomes initialized.
  
@@ -363,6 +385,8 @@ extern NSString * _Nonnull const mParticleEmbeddedSDKDidBecomeInactiveNotificati
 extern NSString * _Nonnull const mParticleKitInstanceKey;
 extern NSString * _Nonnull const mParticleEmbeddedSDKInstanceKey;
 
+/** Posted immediately after the user's MPID changes (or in other terms when a different user becomes active).
+ */
 extern NSString * _Nonnull const mParticleIdentityStateChangeListenerNotification;
 extern NSString * _Nonnull const mParticleUserKey;
 extern NSString * _Nonnull const mParticleIdentityErrorDomain;

@@ -22,10 +22,6 @@
 #import "MPConsentSerialization.h"
 #import "sqlite3.h"
 
-#if TARGET_OS_IOS == 1
-    #import "MParticleUserNotification.h"
-#endif
-
 using namespace std;
 using namespace mParticle;
 
@@ -57,6 +53,13 @@ typedef NS_ENUM(NSInteger, MPDatabaseState) {
 static const NSArray *databaseVersions;
 
 const int MaxBreadcrumbs = 50;
+
+@interface MParticle ()
+
+@property (nonatomic, strong, readonly) MPPersistenceController *persistenceController;
+@property (nonatomic, strong, readonly) MPStateMachine *stateMachine;
+
+@end
 
 @interface MPPersistenceController() {
     BOOL databaseOpen;
@@ -226,8 +229,8 @@ const int MaxBreadcrumbs = 50;
 }
 
 - (void)resetDatabase {
-    [self deleteRecordsOlderThan:[[NSDate date] timeIntervalSince1970]];
     [self closeDatabase];
+    [self removeDatabase];
 }
 
 - (void)saveCookie:(MPCookie *)cookie forConsumerInfo:(MPConsumerInfo *)consumerInfo {
@@ -516,17 +519,6 @@ const int MaxBreadcrumbs = 50;
 }
 
 #pragma mark Class methods
-+ (instancetype)sharedInstance {
-    static MPPersistenceController *sharedInstance = nil;
-    static dispatch_once_t persistenceControllerPredicate;
-    
-    dispatch_once(&persistenceControllerPredicate, ^{
-        sharedInstance = [[MPPersistenceController alloc] init];
-        [sharedInstance openDatabase];
-    });
-    
-    return sharedInstance;
-}
 
 #pragma mark Public methods
 
@@ -641,16 +633,8 @@ const int MaxBreadcrumbs = 50;
     sqlite3_finalize(preparedStatement);
 }
 
-- (void)deleteIntegrationAttributes:(nonnull MPIntegrationAttributes *)integrationAttributes {
-    if (MPIsNull(integrationAttributes)) {
-        return;
-    }
-    
-    [self deleteIntegrationAttributesForKitCode:integrationAttributes.kitCode];
-}
-
-- (void)deleteIntegrationAttributesForKitCode:(nonnull NSNumber *)kitCode {
-    if (MPIsNull(kitCode)) {
+- (void)deleteIntegrationAttributesForIntegrationId:(nonnull NSNumber *)integrationId {
+    if (MPIsNull(integrationId)) {
         return;
     }
     
@@ -658,7 +642,7 @@ const int MaxBreadcrumbs = 50;
     const string sqlStatement = "DELETE FROM integration_attributes WHERE kit_code = ?";
     
     if (sqlite3_prepare_v2(mParticleDB, sqlStatement.c_str(), (int)sqlStatement.size(), &preparedStatement, NULL) == SQLITE_OK) {
-        sqlite3_bind_int(preparedStatement, 1, [kitCode intValue]);
+        sqlite3_bind_int(preparedStatement, 1, [integrationId intValue]);
         
         if (sqlite3_step(preparedStatement) != SQLITE_DONE) {
             MPILogError(@"Error while deleting integration attributes: %s", sqlite3_errmsg(mParticleDB));
@@ -828,6 +812,9 @@ const int MaxBreadcrumbs = 50;
 }
 
 - (void)deleteUpload:(MPUpload *)upload {
+    if (!upload) {
+        return;
+    }
     [self deleteUploadId:upload.uploadId];
 }
 
@@ -972,7 +959,7 @@ const int MaxBreadcrumbs = 50;
     
     if (sqlite3_prepare_v2(mParticleDB, sqlStatement.c_str(), (int)sqlStatement.size(), &preparedStatement, NULL) == SQLITE_OK) {
         while (sqlite3_step(preparedStatement) == SQLITE_ROW) {
-            MPIntegrationAttributes *integrationAttributes = [[MPIntegrationAttributes alloc] initWithKitCode:@(intValue(preparedStatement, 0))
+            MPIntegrationAttributes *integrationAttributes = [[MPIntegrationAttributes alloc] initWithIntegrationId:@(intValue(preparedStatement, 0))
                                                                                                attributesData:dataValue(preparedStatement, 1)];
             
             if (integrationAttributes) {
@@ -989,6 +976,26 @@ const int MaxBreadcrumbs = 50;
     
     NSArray<MPIntegrationAttributes *> *integrationAttributesArray = [NSArray arrayWithObjects:&integrationAttributesVector[0] count:integrationAttributesVector.size()];
     return integrationAttributesArray;
+}
+
+- (nullable NSDictionary*)fetchIntegrationAttributesForId:(NSNumber *)integrationId {
+    if (MPIsNull(integrationId)) {
+        return nil;
+    }
+    MPIntegrationAttributes *integrationAttributes;
+    sqlite3_stmt *preparedStatement;
+    const string sqlStatement = "SELECT attributes_data FROM integration_attributes WHERE kit_code = ?";
+    
+    if (sqlite3_prepare_v2(mParticleDB, sqlStatement.c_str(), (int)sqlStatement.size(), &preparedStatement, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(preparedStatement, 1, integrationId.intValue);
+        if (sqlite3_step(preparedStatement) == SQLITE_ROW) {
+            integrationAttributes = [[MPIntegrationAttributes alloc] initWithIntegrationId:integrationId
+                                                                            attributesData:dataValue(preparedStatement, 0)];
+        }
+    }
+    
+    sqlite3_finalize(preparedStatement);
+    return [integrationAttributes attributes];
 }
 
 - (nullable NSArray<MPMessage *> *)fetchMessagesInSession:(MPSession *)session userId:(NSNumber *)userId {
@@ -1326,7 +1333,7 @@ const int MaxBreadcrumbs = 50;
     sqlite3_stmt *preparedStatement;
     string sqlStatement;
     
-    sqlStatement = "SELECT _id, uuid, message_data, timestamp, session_id FROM uploads";
+    sqlStatement = "SELECT _id, uuid, message_data, timestamp, session_id FROM uploads ORDER BY timestamp, _id LIMIT 100";
     
     vector<MPUpload *> uploadsVector;
     
@@ -1442,16 +1449,13 @@ const int MaxBreadcrumbs = 50;
     return databaseOpen;
 }
 
-- (void)saveBreadcrumb:(MPMessage *)message session:(MPSession *)session {
-    // Save message
-    [self saveMessage:message];
-    
+- (void)saveBreadcrumb:(MPMessage *)message {
     // Save breadcrumb
     sqlite3_stmt *preparedStatement;
     string sqlStatement = "INSERT INTO breadcrumbs (session_uuid, uuid, timestamp, breadcrumb_data, session_number, mpid) VALUES (?, ?, ?, ?, ?, ?)";
     
     if (sqlite3_prepare_v2(mParticleDB, sqlStatement.c_str(), (int)sqlStatement.size(), &preparedStatement, NULL) == SQLITE_OK) {
-        string auxString = string([session.uuid UTF8String]);
+        string auxString = string(""); // not used
         sqlite3_bind_text(preparedStatement, 1, auxString.c_str(), (int)auxString.size(), SQLITE_TRANSIENT);
         
         auxString = string([message.uuid UTF8String]);
@@ -1467,6 +1471,8 @@ const int MaxBreadcrumbs = 50;
         }
         
         sqlite3_clear_bindings(preparedStatement);
+    } else {
+        MPILogError(@"could not prepare statemnt: %s\n", sqlite3_errmsg(mParticleDB));
     }
     
     sqlite3_finalize(preparedStatement);
@@ -1484,6 +1490,8 @@ const int MaxBreadcrumbs = 50;
         }
         
         sqlite3_clear_bindings(preparedStatement);
+    } else {
+        MPILogError(@"could not prepare statemnt: %s\n", sqlite3_errmsg(mParticleDB));
     }
     
     sqlite3_finalize(preparedStatement);
@@ -1524,6 +1532,8 @@ const int MaxBreadcrumbs = 50;
         consumerInfo.consumerInfoId = sqlite3_last_insert_rowid(mParticleDB);
         
         sqlite3_clear_bindings(preparedStatement);
+    } else {
+        MPILogError(@"could not prepare statemnt: %s\n", sqlite3_errmsg(mParticleDB));
     }
     
     sqlite3_finalize(preparedStatement);
@@ -1568,13 +1578,15 @@ const int MaxBreadcrumbs = 50;
         forwardRecord.forwardRecordId = sqlite3_last_insert_rowid(mParticleDB);
         
         sqlite3_clear_bindings(preparedStatement);
+    } else {
+        MPILogError(@"could not prepare statemnt: %s\n", sqlite3_errmsg(mParticleDB));
     }
     
     sqlite3_finalize(preparedStatement);
 }
 
 - (void)saveIntegrationAttributes:(nonnull MPIntegrationAttributes *)integrationAttributes {
-    [self deleteIntegrationAttributesForKitCode:integrationAttributes.kitCode];
+    [self deleteIntegrationAttributesForIntegrationId:integrationAttributes.integrationId];
     
     sqlite3_stmt *preparedStatement;
     const string sqlStatement = "INSERT INTO integration_attributes (kit_code, attributes_data) VALUES (?, ?)";
@@ -1592,7 +1604,7 @@ const int MaxBreadcrumbs = 50;
             return;
         }
         
-        sqlite3_bind_int(preparedStatement, 1, [integrationAttributes.kitCode intValue]);
+        sqlite3_bind_int(preparedStatement, 1, [integrationAttributes.integrationId intValue]);
         sqlite3_bind_blob(preparedStatement, 2, [attributesData bytes], (int)[attributesData length], SQLITE_STATIC);
         
         if (sqlite3_step(preparedStatement) != SQLITE_DONE) {
@@ -1603,12 +1615,19 @@ const int MaxBreadcrumbs = 50;
         }
         
         sqlite3_clear_bindings(preparedStatement);
+    } else {
+        MPILogError(@"could not prepare statemnt: %s\n", sqlite3_errmsg(mParticleDB));
     }
     
     sqlite3_finalize(preparedStatement);
 }
 
 - (void)saveMessage:(MPMessage *)message {
+    if (message.messageData.length > MAX_BYTES_PER_EVENT) {
+        MPILogError(@"Unable to save message exceeding max message size!");
+        return;
+    }
+    
     sqlite3_stmt *preparedStatement;
     const string sqlStatement = "INSERT INTO messages (message_type, session_id, uuid, timestamp, message_data, upload_status, mpid) VALUES (?, ?, ?, ?, ?, ?, ?)";
     
@@ -1616,7 +1635,7 @@ const int MaxBreadcrumbs = 50;
         string auxString = string([message.messageType UTF8String]);
         sqlite3_bind_text(preparedStatement, 1, auxString.c_str(), (int)auxString.size(), SQLITE_TRANSIENT);
         
-        if (message.sessionId != nil && MParticle.sharedInstance.automaticSessionTracking) {
+        if (message.sessionId != nil) {
             sqlite3_bind_int64(preparedStatement, 2, message.sessionId.longLongValue);
         } else {
             sqlite3_bind_null(preparedStatement, 2);
@@ -1641,6 +1660,8 @@ const int MaxBreadcrumbs = 50;
         message.messageId = sqlite3_last_insert_rowid(mParticleDB);
         
         sqlite3_clear_bindings(preparedStatement);
+    } else {
+        MPILogError(@"could not prepare statemnt: %s\n", sqlite3_errmsg(mParticleDB));
     }
     
     sqlite3_finalize(preparedStatement);
@@ -1667,6 +1688,8 @@ const int MaxBreadcrumbs = 50;
             segmentMembership.segmentMembershipId = sqlite3_last_insert_rowid(self->mParticleDB);
             
             sqlite3_clear_bindings(preparedStatement);
+        } else {
+            MPILogError(@"could not prepare statemnt: %s\n", sqlite3_errmsg(self->mParticleDB));
         }
         
         sqlite3_finalize(preparedStatement);
@@ -1701,6 +1724,8 @@ const int MaxBreadcrumbs = 50;
         }
         
         sqlite3_clear_bindings(preparedStatement);
+    } else {
+        MPILogError(@"could not prepare statement: %s\n", sqlite3_errmsg(mParticleDB));
     }
     
     sqlite3_finalize(preparedStatement);
@@ -1740,6 +1765,8 @@ const int MaxBreadcrumbs = 50;
             session.sessionId = sqlite3_last_insert_rowid(mParticleDB);
             
             sqlite3_clear_bindings(preparedStatement);
+        } else {
+            MPILogError(@"could not prepare statement: %s\n", sqlite3_errmsg(mParticleDB));
         }
         
         sqlite3_finalize(preparedStatement);
@@ -1748,6 +1775,10 @@ const int MaxBreadcrumbs = 50;
 
 - (void)saveUpload:(MPUpload *)upload messageIds:(nonnull NSArray<NSNumber *> *)messageIds operation:(MPPersistenceOperation)operation {
     // Save upload
+    if ([MParticle sharedInstance].stateMachine.optOut && !upload.containsOptOutMessage) {
+        return;
+    }
+    
     sqlite3_stmt *preparedStatement;
     string sqlStatement = "INSERT INTO uploads (uuid, message_data, timestamp, session_id) VALUES (?, ?, ?, ?)";
     
@@ -1774,6 +1805,8 @@ const int MaxBreadcrumbs = 50;
         upload.uploadId = sqlite3_last_insert_rowid(mParticleDB);
         
         sqlite3_clear_bindings(preparedStatement);
+    } else {
+        MPILogError(@"could not prepare statement: %s\n", sqlite3_errmsg(mParticleDB));
     }
     
     sqlite3_finalize(preparedStatement);
@@ -1846,6 +1879,8 @@ const int MaxBreadcrumbs = 50;
             }
             
             sqlite3_clear_bindings(preparedStatement);
+        } else {
+            MPILogError(@"could not prepare statement: %s\n", sqlite3_errmsg(mParticleDB));
         }
         
         sqlite3_finalize(preparedStatement);
