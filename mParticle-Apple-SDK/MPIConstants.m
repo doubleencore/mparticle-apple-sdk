@@ -1,7 +1,7 @@
 #import "MPIConstants.h"
 
 // mParticle SDK Version
-NSString *const kMParticleSDKVersion = @"7.9.1";
+NSString *const kMParticleSDKVersion = @"7.10.4";
 
 // Message Type (dt)
 NSString *const kMPMessageTypeKey = @"dt";
@@ -149,6 +149,8 @@ NSString *const kMPDeviceTokenTypeKey = @"tot";
 NSString *const kMPDeviceTokenTypeDevelopment = @"appleSandbox";
 NSString *const kMPDeviceTokenTypeProduction = @"appleProduction";
 NSString *const kMPHTTPETagHeaderKey = @"ETag";
+NSString *const kMPHTTPCacheControlHeaderKey = @"Cache-Control";
+NSString *const kMPHTTPAgeHeaderKey = @"Age";
 NSString *const kMResponseConfigurationKey = @"responseConfiguration";
 NSString *const kMResponseConfigurationMigrationKey = @"responseConfigurationMigrated";
 NSString *const kMPAppSearchAdsAttributionKey = @"asaa";
@@ -159,9 +161,13 @@ NSString *const kMPIsEphemeralKey = @"is_ephemeral";
 NSString *const kMPLastIdentifiedDate = @"last_date_used";
 NSString *const kMPDeviceApplicationStampKey = @"das";
 NSString *const kMPDeviceApplicationStampStorageKey = @"dast";
-NSString *const kMPLastConfigReceivedKey = @"LastConfigReceived";
+NSString *const kMPConfigProvisionedTimestampKey = @"ConfigProvisionedTimestamp";
+NSString *const kMPConfigMaxAgeKey = @"ConfigMaxAge";
+NSString *const kMPConfigParameters = @"ConfigParameters";
 NSString *const kMPUserAgentSystemVersionUserDefaultsKey = @"UserAgentSystemVersion";
 NSString *const kMPUserAgentValueUserDefaultsKey = @"UserAgentValue";
+NSString *const kMPFirstSeenUser = @"fsu";
+NSString *const kMPLastSeenUser = @"lsu";
 
 // Remote configuration
 NSString *const kMPRemoteConfigExceptionHandlingModeKey = @"cue";
@@ -202,6 +208,7 @@ NSString *const kMPRemoteConfigTriggerMessageTypesKey = @"dts";
 NSString *const kMPRemoteConfigUniqueIdentifierKey = @"das";
 NSString *const kMPRemoteConfigBracketKey = @"bk";
 NSString *const kMPRemoteConfigRestrictIDFA = @"rdlat";
+NSString *const kMPRemoteConfigAliasMaxWindow = @"alias_max_window";
 NSString *const kMPRemoteConfigAllowASR = @"iasr";
 NSString *const kMPRemoteConfigExcludeAnonymousUsersKey = @"eau";
 
@@ -266,6 +273,7 @@ NSString *const kMParticleWebViewPathIdentify = @"identify";
 NSString *const kMParticleWebViewPathLogout = @"logout";
 NSString *const kMParticleWebViewPathLogin = @"login";
 NSString *const kMParticleWebViewPathModify = @"modify";
+NSString *const kMParticleWebViewPathAlias = @"alias";
 
 // Message type strings
 NSString *const kMPMessageTypeStringUnknown = @"unknown";
@@ -352,8 +360,8 @@ const NSTimeInterval DEFAULT_UPLOAD_INTERVAL =
     #endif
 
 // How long to block config requests after a successful response.
-const NSTimeInterval DEBUG_CONFIG_REQUESTS_QUIET_INTERVAL = 60.0;
-const NSTimeInterval CONFIG_REQUESTS_QUIET_INTERVAL = 10.0*60;
+const NSTimeInterval CONFIG_REQUESTS_DEFAULT_EXPIRATION_AGE = 10.0*60;
+const NSTimeInterval CONFIG_REQUESTS_MAX_EXPIRATION_AGE = 60*60*24.0;
 
 const NSTimeInterval SEARCH_ADS_ATTRIBUTION_GLOBAL_TIMEOUT_SECONDS = 30.0;
 const NSTimeInterval SEARCH_ADS_ATTRIBUTION_DELAY_BEFORE_RETRY = 3.0;

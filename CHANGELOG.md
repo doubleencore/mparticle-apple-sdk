@@ -1,5 +1,82 @@
 # mParticle Apple SDK CHANGELOG
 
+## 7.10.4
+
+## Critical Bug Fixes
+
+This release fixes a critical bug in SDK versions 7.8.6 and later where uploads could be prematurely deleted if the network request failed due to the device being offline.
+
+This release also fixes a crash while migrating the SDK's internal database. The crash occurs for apps that had opted into manual-session tracking in a previous version of the SDK, and then upgraded to the latest version of the SDK.
+
+## Core
+
+- Bugfix for upload response processing
+- Fix session id migration for messages and uploads
+
+## Kits
+
+- Appboy - Update endpoint override logic
+
+## 7.10.2
+
+## Core
+
+Note: To ensure proper validation, this release updates the userIdentities property of MPIdentityApiRequest to be an immutable dictionary.
+
+If you happened to be modifying this dictionary directly, you will need to update your code to call setUserIdentity:identityType: instead.
+
+- Don't allow direct mutation of request identities
+- Guard against nil events
+
+## Kits
+
+- Button - Update kit to use Button Merchant Library
+
+## 7.10.1
+
+## Core
+
+- Update for Xcode 11
+- Respect max age expiration for configuration requests
+
+## Kits
+
+- Update Urban Airship import statements
+
+## 7.10.0
+
+This release introduces support for user alias requests.
+
+Aliasing allows you to copy data from one user to another, typically for the purpose of building audiences that include actions a user may have taken before they logged in.
+
+This release also adds properties to a user that indicate when this user was first or last seen by the SDK. Getting the list of all users known to the SDK now sorts by the last time each user was seen.
+
+## Core
+
+- Add support for sending user alias requests
+- Move sessionTimeout to MParticleOptions
+- Guard against unexpected radio technology values
+- Implement Inspector protocol
+- Reachability improvements
+
+## Kits
+
+- Apptentive - Add ability to delay Apptentive SDK initialization
+- Radar - Minor tracking updates
+
+Minor changes have been made across the kits to bring source indentation and license/readme/podspec files into consistency.
+
+## 7.9.2
+
+## Core
+
+- Fix legacy openURL method forwarding to kits
+- Fix static code analytics warnings
+
+## Kits
+
+- None
+
 ## 7.9.1
 
 ## Core

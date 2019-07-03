@@ -24,6 +24,7 @@
 
 NSString *const kCookieDateKey = @"e";
 NSString *const kMinUploadDateKey = @"MinUploadDate";
+NSString *const kMinAliasDateKey = @"MinAliasDate";
 
 static MPEnvironment runningEnvironment = MPEnvironmentAutoDetect;
 static BOOL runningInBackground = NO;
@@ -58,7 +59,6 @@ static BOOL runningInBackground = NO;
 @synthesize installationType = _installationType;
 @synthesize locationTrackingMode = _locationTrackingMode;
 @synthesize logLevel = _logLevel;
-@synthesize minUploadDate = _minUploadDate;
 @synthesize optOut = _optOut;
 @synthesize alwaysTryToCollectIDFA = _alwaysTryToCollectIDFA;
 @synthesize pushNotificationMode = _pushNotificationMode;
@@ -142,6 +142,10 @@ static BOOL runningInBackground = NO;
     [notificationCenter removeObserver:self name:UIApplicationWillTerminateNotification object:nil];
     [notificationCenter removeObserver:self name:UIApplicationDidReceiveMemoryWarningNotification object:nil];
     [notificationCenter removeObserver:self name:MParticleReachabilityChangedNotification object:nil];
+    
+    if (_reachability != nil) {
+        [_reachability stopNotifier];
+    }
 }
 
 #pragma mark Private accessors
@@ -280,13 +284,7 @@ static BOOL runningInBackground = NO;
 }
 
 - (void)handleReachabilityChanged:(NSNotification *)notification {
-    MParticleReachability *currentReachability = [notification object];
-    
-    if ([currentReachability isKindOfClass:[MParticleReachability class]]) {
-        [self willChangeValueForKey:@"networkStatus"];
-        self.networkStatus = [currentReachability currentReachabilityStatus];
-        [self didChangeValueForKey:@"networkStatus"];
-    }
+    self.networkStatus = [self.reachability currentReachabilityStatus];
 }
 
 #pragma mark Class methods
@@ -565,38 +563,38 @@ static BOOL runningInBackground = NO;
     });
 }
 
-- (NSDate *)minUploadDate {
-    if (_minUploadDate) {
-        return _minUploadDate;
+- (NSString *)minDefaultsKeyForUploadType:(MPUploadType)uploadType {
+    NSString *defaultsKey = nil;
+    if (uploadType == MPUploadTypeMessage) {
+        defaultsKey = kMinUploadDateKey;
+    } else if (uploadType == MPUploadTypeAlias) {
+        defaultsKey = kMinAliasDateKey;
     }
-    
-    [self willChangeValueForKey:@"minUploadDate"];
-    
-    MPIUserDefaults *userDefaults = [MPIUserDefaults standardUserDefaults];
-    NSDate *minUploadDate = userDefaults[kMinUploadDateKey];
-    if (minUploadDate) {
-        if ([minUploadDate compare:[NSDate date]] == NSOrderedDescending) {
-            _minUploadDate = minUploadDate;
-        } else {
-            _minUploadDate = [NSDate distantPast];
-        }
-    } else {
-        _minUploadDate = [NSDate distantPast];
-    }
-
-    [self didChangeValueForKey:@"minUploadDate"];
-    
-    return _minUploadDate;
+    return defaultsKey;
 }
 
-- (void)setMinUploadDate:(NSDate *)minUploadDate {
-    _minUploadDate = minUploadDate;
-    
+- (NSDate *)minUploadDateForUploadType:(MPUploadType)uploadType {
     MPIUserDefaults *userDefaults = [MPIUserDefaults standardUserDefaults];
+    NSString *defaultsKey = [self minDefaultsKeyForUploadType:uploadType];
+    NSDate *minUploadDate = userDefaults[defaultsKey];
+    if (minUploadDate) {
+        if ([minUploadDate compare:[NSDate date]] == NSOrderedDescending) {
+            return minUploadDate;
+        } else {
+            return [NSDate distantPast];
+        }
+    }
+    
+    return [NSDate distantPast];
+}
+
+- (void)setMinUploadDate:(NSDate *)minUploadDate uploadType:(MPUploadType)uploadType {
+    MPIUserDefaults *userDefaults = [MPIUserDefaults standardUserDefaults];
+    NSString *defaultsKey = [self minDefaultsKeyForUploadType:uploadType];
     if ([minUploadDate compare:[NSDate date]] == NSOrderedDescending) {
-        userDefaults[kMinUploadDateKey] = minUploadDate;
-    } else if (userDefaults[kMinUploadDateKey]) {
-        [userDefaults removeMPObjectForKey:kMinUploadDateKey];
+        userDefaults[defaultsKey] = minUploadDate;
+    } else if (userDefaults[defaultsKey]) {
+        [userDefaults removeMPObjectForKey:defaultsKey];
     }
 }
 
@@ -819,6 +817,13 @@ static BOOL runningInBackground = NO;
         restrictIDFA = @YES;
     }
     self.alwaysTryToCollectIDFA = [restrictIDFA isEqual:@NO];
+}
+
+- (void)configureAliasMaxWindow:(NSNumber *)aliasMaxWindow {
+    if (MPIsNull(aliasMaxWindow)) {
+        aliasMaxWindow = @90;
+    }
+    self.aliasMaxWindow = aliasMaxWindow;
 }
 
 @end

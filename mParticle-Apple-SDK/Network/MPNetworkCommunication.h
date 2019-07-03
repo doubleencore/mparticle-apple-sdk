@@ -7,6 +7,7 @@
 @class MPIdentityHTTPSuccessResponse;
 @class MPIdentityHTTPBaseSuccessResponse;
 @class MPIdentityHTTPModifySuccessResponse;
+@class MPConnector;
 
 extern NSString * _Nonnull const kMPURLScheme;
 extern NSString * _Nonnull const kMPURLHost;
@@ -22,10 +23,12 @@ typedef void(^ _Nonnull MPUploadsCompletionHandler)(void);
 
 typedef void (^MPIdentityApiManagerCallback)(MPIdentityHTTPBaseSuccessResponse *_Nullable httpResponse, NSError *_Nullable error);
 typedef void (^MPIdentityApiManagerModifyCallback)(MPIdentityHTTPModifySuccessResponse *_Nullable httpResponse, NSError *_Nullable error);
+typedef void(^ _Nonnull MPConfigCompletionHandler)(BOOL success);
 
 @interface MPNetworkCommunication : NSObject
 
-- (void)requestConfig:(void(^ _Nonnull)(BOOL success, NSDictionary * _Nullable configurationDictionary, NSString * _Nullable eTag))completionHandler;
+- (MPConnector *_Nonnull)makeConnector;
+- (void)requestConfig:(nullable MPConnector *)connector withCompletionHandler:(MPConfigCompletionHandler)completionHandler;
 - (void)requestSegmentsWithTimeout:(NSTimeInterval)timeout completionHandler:(MPSegmentResponseHandler)completionHandler;
 - (void)upload:(nonnull NSArray<MPUpload *> *)uploads completionHandler:(MPUploadsCompletionHandler)completionHandler;
 

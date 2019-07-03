@@ -187,8 +187,11 @@
     
     MPResponseConfig *responseConfig = [[MPResponseConfig alloc] initWithConfiguration:configuration];
     
-    [MPResponseConfig save:responseConfig eTag:eTag];
-        
+    NSTimeInterval requestTimestamp = [[NSDate date] timeIntervalSince1970];
+    [[MPIUserDefaults standardUserDefaults] setConfiguration:configuration eTag:eTag requestTimestamp:requestTimestamp currentAge:@"0" maxAge:nil];
+    
+    XCTAssertEqualObjects(responseConfig.configuration, [MPResponseConfig restore].configuration);
+    
     NSArray *directoryContents = [[MPIUserDefaults standardUserDefaults] getKitConfigurations];
     for (NSDictionary *kitConfigurationDictionary in directoryContents) {
         MPKitConfiguration *kitConfiguration = [[MPKitConfiguration alloc] initWithDictionary:kitConfigurationDictionary];
@@ -235,7 +238,10 @@
         
         MPResponseConfig *responseConfig = [[MPResponseConfig alloc] initWithConfiguration:configuration];
         
-        [MPResponseConfig save:responseConfig eTag:eTag];
+        NSTimeInterval requestTimestamp = [[NSDate date] timeIntervalSince1970];
+        [[MPIUserDefaults standardUserDefaults] setConfiguration:configuration eTag:eTag requestTimestamp:requestTimestamp currentAge:@"0" maxAge:nil];
+        
+        XCTAssertEqualObjects(responseConfig.configuration, [MPResponseConfig restore].configuration);
         
         dispatch_sync(dispatch_get_main_queue(), ^{ });
         XCTAssertEqual(@"cool app key", [self->kitContainer.kitConfigurations objectForKey:@(42)].configuration[@"appId"]);
@@ -264,7 +270,10 @@
         
         responseConfig = [[MPResponseConfig alloc] initWithConfiguration:configuration];
         
-        [MPResponseConfig save:responseConfig eTag:eTag];
+        requestTimestamp = [[NSDate date] timeIntervalSince1970];
+        [[MPIUserDefaults standardUserDefaults] setConfiguration:configuration eTag:eTag requestTimestamp:requestTimestamp currentAge:@"0" maxAge:nil];
+        
+        XCTAssertEqualObjects(responseConfig.configuration, [MPResponseConfig restore].configuration);
         
         XCTAssertEqual(@"cool app key", [self->kitContainer.kitConfigurations objectForKey:@(42)].configuration[@"appId"]);
         
@@ -2080,6 +2089,88 @@
 
     [localKitContainer attemptToLogEventToKit:kitRegister kitFilter:kitFilter selector:@selector(logEvent:) parameters:nil messageType:MPMessageTypeEvent userInfo:[[NSDictionary alloc] init]];
     
+    [kitWrapperMock verifyWithDelay:5.0];
+    [kitWrapperMock stopMocking];
+    [kitRegisterMock stopMocking];
+}
+
+- (void)testAttemptToLegacyOpenURLToKit {
+    MPKitContainer *localKitContainer = [[MPKitContainer alloc] init];
+    SEL selector = @selector(openURL:sourceApplication:annotation:);
+    
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    id kitWrapperMock = OCMProtocolMock(@protocol(MPKitProtocol));
+    id kitRegisterMock = OCMPartialMock(kitRegister);
+    OCMStub([kitRegisterMock wrapperInstance]).andReturn(kitWrapperMock);
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegisterMock forSelector:selector];
+    
+    [(id <MPKitProtocol>)[kitWrapperMock expect] openURL:OCMOCK_ANY sourceApplication:OCMOCK_ANY annotation:OCMOCK_ANY];
+    
+    NSArray *parameters = @[
+                            [NSURL URLWithString:@"https://www.example.com"],
+                            @"test-source-application-1",
+                            @{@"test-annotation-key-1":@"test-annotation-value-1"}
+                            ];
+    MPForwardQueueParameters *queueParameters = [[MPForwardQueueParameters alloc] initWithParameters:parameters];
+    [localKitContainer attemptToLogEventToKit:kitRegisterMock kitFilter:kitFilter selector:selector parameters:queueParameters messageType:MPMessageTypeUnknown userInfo:nil];
+    [kitWrapperMock verifyWithDelay:5.0];
+    [kitWrapperMock stopMocking];
+    [kitRegisterMock stopMocking];
+}
+
+- (void)testAttemptToOpenURLToKit {
+    MPKitContainer *localKitContainer = [[MPKitContainer alloc] init];
+    SEL selector = @selector(openURL:options:);
+    
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    id kitWrapperMock = OCMProtocolMock(@protocol(MPKitProtocol));
+    id kitRegisterMock = OCMPartialMock(kitRegister);
+    OCMStub([kitRegisterMock wrapperInstance]).andReturn(kitWrapperMock);
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegisterMock forSelector:selector];
+    
+    [(id <MPKitProtocol>)[kitWrapperMock expect] openURL:OCMOCK_ANY options:OCMOCK_ANY];
+    
+    MPForwardQueueParameters *queueParameters = nil;
+    if (@available(iOS 9.0, *)) {
+        NSArray *parameters = @[
+                                [NSURL URLWithString:@"https://www.example.com"],
+                                @{
+                                    UIApplicationOpenURLOptionsSourceApplicationKey:@"test-source-application-1",
+                                    UIApplicationOpenURLOptionsAnnotationKey:@{@"test-annotation-key-1": @"test-annotation-value-1"}
+                                    }
+                                ];
+        queueParameters = [[MPForwardQueueParameters alloc] initWithParameters:parameters];
+    }
+    
+    [localKitContainer attemptToLogEventToKit:kitRegisterMock kitFilter:kitFilter selector:selector parameters:queueParameters messageType:MPMessageTypeUnknown userInfo:nil];
+    [kitWrapperMock verifyWithDelay:5.0];
+    [kitWrapperMock stopMocking];
+    [kitRegisterMock stopMocking];
+}
+
+- (void)testAttemptToContinueUserActivityToKit {
+    MPKitContainer *localKitContainer = [[MPKitContainer alloc] init];
+    SEL selector = @selector(continueUserActivity:restorationHandler:);
+    
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    id kitWrapperMock = OCMProtocolMock(@protocol(MPKitProtocol));
+    id kitRegisterMock = OCMPartialMock(kitRegister);
+    OCMStub([kitRegisterMock wrapperInstance]).andReturn(kitWrapperMock);
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegisterMock forSelector:selector];
+    
+    [(id <MPKitProtocol>)[kitWrapperMock expect] continueUserActivity:OCMOCK_ANY restorationHandler:OCMOCK_ANY];
+    
+    NSUserActivity *userActivity = [[NSUserActivity alloc] initWithActivityType:@"test-activity-type-1"];
+    userActivity.webpageURL = [NSURL URLWithString:@"https://www.example.com"];
+    void(^restorationHandler)(NSArray * restorableObjects) = ^(NSArray * restorableObjects) {
+        
+    };
+    NSArray *parameters = @[
+                            userActivity,
+                            restorationHandler
+                            ];
+    MPForwardQueueParameters *queueParameters = [[MPForwardQueueParameters alloc] initWithParameters:parameters];
+    [localKitContainer attemptToLogEventToKit:kitRegisterMock kitFilter:kitFilter selector:selector parameters:queueParameters messageType:MPMessageTypeUnknown userInfo:nil];
     [kitWrapperMock verifyWithDelay:5.0];
     [kitWrapperMock stopMocking];
     [kitRegisterMock stopMocking];

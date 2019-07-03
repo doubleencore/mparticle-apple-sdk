@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
     s.name             = "mParticle-Apple-SDK"
-    s.version          = "7.9.1"
+    s.version          = "7.10.4"
     s.summary          = "mParticle Apple SDK."
 
     s.description      = <<-DESC
@@ -20,7 +20,7 @@ Pod::Spec.new do |s|
     s.author            = { "mParticle" => "support@mparticle.com" }
     s.source            = { :git => "https://github.com/mParticle/mparticle-apple-sdk.git", :tag => s.version.to_s }
     s.documentation_url = "https://docs.mparticle.com/developers/sdk/ios/"
-    s.social_media_url  = "https://twitter.com/mparticles"
+    s.social_media_url  = "https://twitter.com/mparticle"
     s.requires_arc      = true
     s.default_subspec   = 'mParticle'
     s.module_name       = "mParticle_Apple_SDK"

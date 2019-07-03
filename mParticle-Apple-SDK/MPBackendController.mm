@@ -36,6 +36,7 @@
 #import "MPSearchAdsAttribution.h"
 #import "MPURLRequestBuilder.h"
 #import "MPArchivist.h"
+#import "MPListenerController.h"
 
 #if TARGET_OS_IOS == 1
 #import "MPLocationManager.h"
@@ -209,10 +210,7 @@ static BOOL appBackgrounded = NO;
         for (NSString *key in [userAttributes allKeys]) {
             if ([userAttributes[key] isKindOfClass:NSStringClass]) {
                 userAttributes[key] = ![userAttributes[key] isEqualToString:kMPNullUserAttributeString] ? userAttributes[key] : [NSNull null];
-            } else {
-                userAttributes[key] = userAttributes[key];
             }
-
         }
         return userAttributes;
     } else {
@@ -516,14 +514,8 @@ static BOOL appBackgrounded = NO;
     application.delegate = appDelegateProxy;
 }
 
-- (void)requestConfig:(void(^ _Nullable)(BOOL success))completionHandler {
-    [self.networkCommunication requestConfig:^(BOOL success, NSDictionary * _Nullable configurationDictionary, NSString * _Nullable eTag) {
-        if (success) {
-            if (eTag && configurationDictionary) {
-                MPResponseConfig *responseConfig = [[MPResponseConfig alloc] initWithConfiguration:configurationDictionary];
-                [MPResponseConfig save:responseConfig eTag: eTag];
-            }
-        }
+- (void)requestConfig:(void(^ _Nullable)(BOOL uploadBatch))completionHandler {
+    [self.networkCommunication requestConfig:nil withCompletionHandler:^(BOOL success) {
         if (completionHandler) {
             completionHandler(success);
         }
@@ -531,6 +523,8 @@ static BOOL appBackgrounded = NO;
 }
 
 - (void)setUserAttributeChange:(MPUserAttributeChange *)userAttributeChange completionHandler:(void (^)(NSString *key, id value, MPExecStatus execStatus))completionHandler {
+    [MPListenerController.sharedInstance onAPICalled:_cmd parameter1:userAttributeChange];
+    
     if ([MParticle sharedInstance].stateMachine.optOut) {
         if (completionHandler) {
             completionHandler(userAttributeChange.key, userAttributeChange.value, MPExecStatusOptOut);
@@ -646,6 +640,12 @@ static BOOL appBackgrounded = NO;
     return [batchMessageArrays copy];
 }
 
+static BOOL skipNextUpload = NO;
+
+- (void)skipNextUpload {
+    skipNextUpload = YES;
+}
+
 - (void)uploadBatchesWithCompletionHandler:(void(^)(BOOL success))completionHandler {
     const void (^completionHandlerCopy)(BOOL) = [completionHandler copy];
     __weak MPBackendController *weakSelf = self;
@@ -653,45 +653,49 @@ static BOOL appBackgrounded = NO;
     
     //Fetch all stored messages (1)
     NSDictionary *mpidMessages = [persistence fetchMessagesForUploading];
-    if (!mpidMessages || mpidMessages.count == 0) {
-        completionHandlerCopy(YES);
-        return;
-    }
-    [mpidMessages enumerateKeysAndObjectsUsingBlock:^(NSNumber * _Nonnull mpid, NSMutableDictionary *  _Nonnull sessionMessages, BOOL * _Nonnull stop) {
-        [sessionMessages enumerateKeysAndObjectsUsingBlock:^(NSNumber * _Nonnull sessionId, NSArray *  _Nonnull messages, BOOL * _Nonnull stop) {
-            //In batches broken up by mpid and then sessionID create the Uploads (2)
-            __strong MPBackendController *strongSelf = weakSelf;
-            NSNumber *nullableSessionID = (sessionId.integerValue == -1) ? nil : sessionId;
-            
-            //Within a session, we also break up based on limits for messages per batch and (approximately) bytes per batch
-            NSArray *batchMessageArrays = [self batchMessageArraysFromMessageArray:messages maxBatchMessages:MAX_EVENTS_PER_BATCH maxBatchBytes:MAX_BYTES_PER_BATCH maxMessageBytes:MAX_BYTES_PER_EVENT];
-            
-            for (int i = 0; i < batchMessageArrays.count; i += 1) {
-                NSArray *limitedMessages = batchMessageArrays[i];
-                MPUploadBuilder *uploadBuilder = [MPUploadBuilder newBuilderWithMpid: mpid sessionId:nullableSessionID messages:limitedMessages sessionTimeout:strongSelf.sessionTimeout uploadInterval:strongSelf.uploadInterval];
+    if (mpidMessages && mpidMessages.count != 0) {
+        [mpidMessages enumerateKeysAndObjectsUsingBlock:^(NSNumber * _Nonnull mpid, NSMutableDictionary *  _Nonnull sessionMessages, BOOL * _Nonnull stop) {
+            [sessionMessages enumerateKeysAndObjectsUsingBlock:^(NSNumber * _Nonnull sessionId, NSArray *  _Nonnull messages, BOOL * _Nonnull stop) {
+                //In batches broken up by mpid and then sessionID create the Uploads (2)
+                __strong MPBackendController *strongSelf = weakSelf;
+                NSNumber *nullableSessionID = (sessionId.integerValue == -1) ? nil : sessionId;
                 
-                if (!uploadBuilder || !strongSelf) {
-                    completionHandlerCopy(YES);
-                    return;
+                //Within a session, we also break up based on limits for messages per batch and (approximately) bytes per batch
+                NSArray *batchMessageArrays = [self batchMessageArraysFromMessageArray:messages maxBatchMessages:MAX_EVENTS_PER_BATCH maxBatchBytes:MAX_BYTES_PER_BATCH maxMessageBytes:MAX_BYTES_PER_EVENT];
+                
+                for (int i = 0; i < batchMessageArrays.count; i += 1) {
+                    NSArray *limitedMessages = batchMessageArrays[i];
+                    MPUploadBuilder *uploadBuilder = [MPUploadBuilder newBuilderWithMpid: mpid sessionId:nullableSessionID messages:limitedMessages sessionTimeout:strongSelf.sessionTimeout uploadInterval:strongSelf.uploadInterval];
+                    
+                    if (!uploadBuilder || !strongSelf) {
+                        completionHandlerCopy(YES);
+                        return;
+                    }
+                    
+                    [uploadBuilder withUserAttributes:[strongSelf userAttributesForUserId:mpid] deletedUserAttributes:self->deletedUserAttributes];
+                    [uploadBuilder withUserIdentities:[strongSelf userIdentitiesForUserId:mpid]];
+                    [uploadBuilder build:^(MPUpload *upload) {
+                        //Save the Upload to the Database (3)
+                        [persistence saveUpload:upload];
+                    }];
                 }
                 
-                [uploadBuilder withUserAttributes:[strongSelf userAttributesForUserId:mpid] deletedUserAttributes:self->deletedUserAttributes];
-                [uploadBuilder withUserIdentities:[strongSelf userIdentitiesForUserId:mpid]];
-                [uploadBuilder build:^(MPUpload *upload) {
-                    //Save the Upload to the Database (3)
-                    [persistence saveUpload:(MPUpload *)upload messageIds:uploadBuilder.preparedMessageIds operation:MPPersistenceOperationFlag];
-                }];
-            }
-            
-            //Delete all messages associated with the batches (4)
-            [persistence deleteMessages:messages];
-            
-            self->deletedUserAttributes = nil;
+                //Delete all messages associated with the batches (4)
+                [persistence deleteMessages:messages];
+                
+                self->deletedUserAttributes = nil;
+            }];
         }];
-    }];
+    }
     
     //Fetch all sessions and delete them if inactive (5)
     [persistence deleteAllSessionsExcept:[MParticle sharedInstance].stateMachine.currentSession];
+    
+    if (skipNextUpload) {
+        skipNextUpload = NO;
+        completionHandler(YES);
+        return;
+    }
     
     // Fetch all Uploads (6)
     NSArray<MPUpload *> *uploads = [persistence fetchUploads];
@@ -1018,6 +1022,7 @@ static BOOL appBackgrounded = NO;
     }
     
     _sessionTimeout = MIN(MAX(sessionTimeout, MINIMUM_SESSION_TIMEOUT), MAXIMUM_SESSION_TIMEOUT);
+    MPILogDebug(@"Set Session Timeout: %.0f", _sessionTimeout);
 }
 
 - (NSTimeInterval)uploadInterval {
@@ -1352,6 +1357,8 @@ static BOOL appBackgrounded = NO;
 }
 
 - (NSNumber *)incrementUserAttribute:(NSString *)key byValue:(NSNumber *)value {
+    [MPListenerController.sharedInstance onAPICalled:_cmd  parameter1:key parameter2:value];
+    
     NSAssert([key isKindOfClass:[NSString class]], @"'key' must be a string.");
     NSAssert([value isKindOfClass:[NSNumber class]], @"'value' must be a number.");
     
@@ -1397,6 +1404,7 @@ static BOOL appBackgrounded = NO;
 }
 
 - (void)leaveBreadcrumb:(MPEvent *)event completionHandler:(void (^)(MPEvent *event, MPExecStatus execStatus))completionHandler {
+    [MPListenerController.sharedInstance onAPICalled:_cmd  parameter1:event];
     
     event.messageType = MPMessageTypeBreadcrumb;
     MPExecStatus execStatus = MPExecStatusFail;
@@ -1423,6 +1431,7 @@ static BOOL appBackgrounded = NO;
 }
 
 - (void)logCommerceEvent:(MPCommerceEvent *)commerceEvent completionHandler:(void (^)(MPCommerceEvent *commerceEvent, MPExecStatus execStatus))completionHandler {
+    [MPListenerController.sharedInstance onAPICalled:_cmd  parameter1:commerceEvent];
 
     MPExecStatus execStatus = MPExecStatusFail;
     MPMessageBuilder *messageBuilder = [MPMessageBuilder newBuilderWithMessageType:MPMessageTypeCommerceEvent session:self.session commerceEvent:commerceEvent];
@@ -1465,7 +1474,7 @@ static BOOL appBackgrounded = NO;
 }
 
 - (void)logError:(NSString *)message exception:(NSException *)exception topmostContext:(id)topmostContext eventInfo:(NSDictionary *)eventInfo completionHandler:(void (^)(NSString *message, MPExecStatus execStatus))completionHandler {
-    
+    [MPListenerController.sharedInstance onAPICalled:_cmd parameter1:message parameter2:exception parameter3:topmostContext parameter4:eventInfo];
     
     NSString *execMessage = exception ? exception.name : message;
     
@@ -1532,6 +1541,7 @@ static BOOL appBackgrounded = NO;
 }
 
 - (void)logEvent:(MPEvent *)event completionHandler:(void (^)(MPEvent *event, MPExecStatus execStatus))completionHandler {
+    [MPListenerController.sharedInstance onAPICalled:_cmd parameter1:event];
     
     event.messageType = MPMessageTypeEvent;
     
@@ -1562,6 +1572,7 @@ static BOOL appBackgrounded = NO;
 }
 
 - (void)logNetworkPerformanceMeasurement:(MPNetworkPerformance *)networkPerformance completionHandler:(void (^)(MPNetworkPerformance *networkPerformance, MPExecStatus execStatus))completionHandler {
+    [MPListenerController.sharedInstance onAPICalled:_cmd parameter1:networkPerformance];
     
     MPExecStatus execStatus = MPExecStatusFail;
     
@@ -1583,6 +1594,7 @@ static BOOL appBackgrounded = NO;
 }
 
 - (void)logScreen:(MPEvent *)event completionHandler:(void (^)(MPEvent *event, MPExecStatus execStatus))completionHandler {
+    [MPListenerController.sharedInstance onAPICalled:_cmd parameter1:event];
     
     event.messageType = MPMessageTypeScreenView;
 
@@ -1620,6 +1632,8 @@ static BOOL appBackgrounded = NO;
 
 - (void)setOptOut:(BOOL)optOutStatus completionHandler:(void (^)(BOOL optOut, MPExecStatus execStatus))completionHandler {
     dispatch_async(messageQueue, ^{
+        [MPListenerController.sharedInstance onAPICalled:_cmd parameter1:@(optOutStatus)];
+        
         MPExecStatus execStatus = MPExecStatusFail;
         
         [MParticle sharedInstance].stateMachine.optOut = optOutStatus;
@@ -1667,6 +1681,8 @@ static BOOL appBackgrounded = NO;
 }
 
 - (void)startWithKey:(NSString *)apiKey secret:(NSString *)secret firstRun:(BOOL)firstRun installationType:(MPInstallationType)installationType proxyAppDelegate:(BOOL)proxyAppDelegate startKitsAsync:(BOOL)startKitsAsync consentState:(MPConsentState *)consentState completionHandler:(dispatch_block_t)completionHandler {
+    [MPListenerController.sharedInstance onAPICalled:_cmd parameter1:apiKey parameter2:secret parameter3:@(firstRun) parameter4:consentState];
+    
     if (![MPStateMachine isAppExtension]) {
         if (proxyAppDelegate) {
             [self proxyOriginalAppDelegate];
@@ -1797,6 +1813,21 @@ static BOOL appBackgrounded = NO;
 }
 
 - (MPExecStatus)waitForKitsAndUploadWithCompletionHandler:(void (^ _Nullable)())completionHandler {
+    [self checkForKitsAndUploadWithCompletionHandler:^(BOOL didShortCircuit) {
+        if (!didShortCircuit) {
+            if (completionHandler) {
+                completionHandler();
+            }
+        } else {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), [MParticle messageQueue], ^{
+                [self waitForKitsAndUploadWithCompletionHandler:completionHandler];
+            });
+        }
+    }];
+    return MPExecStatusSuccess;
+}
+
+- (MPExecStatus)checkForKitsAndUploadWithCompletionHandler:(void (^ _Nullable)(BOOL didShortCircuit))completionHandler {
     __weak MPBackendController *weakSelf = self;
 
             [self requestConfig:^(BOOL uploadBatch) {
@@ -1805,7 +1836,7 @@ static BOOL appBackgrounded = NO;
                 BOOL shouldDelayUpload = kitContainer && [kitContainer shouldDelayUpload:kMPMaximumKitWaitTimeSeconds];
                 if (!uploadBatch || shouldDelayUpload) {
                     if (completionHandler) {
-                        completionHandler();
+                        completionHandler(YES);
                     }
                     
                     return;
@@ -1813,7 +1844,7 @@ static BOOL appBackgrounded = NO;
                 
                 [strongSelf uploadBatchesWithCompletionHandler:^(BOOL success) {
                     if (completionHandler) {
-                        completionHandler();
+                        completionHandler(NO);
                     }
                 }];
                 
@@ -1824,6 +1855,8 @@ static BOOL appBackgrounded = NO;
 
 
 - (void)setUserAttribute:(NSString *)key value:(id)value timestamp:(NSDate *)timestamp completionHandler:(void (^)(NSString *key, id value, MPExecStatus execStatus))completionHandler {
+    [MPListenerController.sharedInstance onAPICalled:_cmd parameter1:key parameter2:value parameter3:timestamp];
+    
     NSString *keyCopy = [key mutableCopy];
     BOOL validKey = !MPIsNull(keyCopy) && [keyCopy isKindOfClass:[NSString class]];
     if (!validKey) {
@@ -1848,6 +1881,8 @@ static BOOL appBackgrounded = NO;
 }
 
 - (void)setUserAttribute:(nonnull NSString *)key values:(nullable NSArray<NSString *> *)values timestamp:(NSDate *)timestamp completionHandler:(void (^ _Nullable)(NSString * _Nonnull key, NSArray<NSString *> * _Nullable values, MPExecStatus execStatus))completionHandler {
+    [MPListenerController.sharedInstance onAPICalled:_cmd parameter1:key parameter2:values parameter3:timestamp];
+
     NSString *keyCopy = [key mutableCopy];
     BOOL validKey = !MPIsNull(keyCopy) && [keyCopy isKindOfClass:[NSString class]];
     
@@ -1876,6 +1911,8 @@ static BOOL appBackgrounded = NO;
 }
 
 - (void)removeUserAttribute:(NSString *)key timestamp:(NSDate *)timestamp completionHandler:(void (^)(NSString *key, id value, MPExecStatus execStatus))completionHandler {
+    [MPListenerController.sharedInstance onAPICalled:_cmd parameter1:key parameter2:timestamp];
+    
     NSString *keyCopy = [key mutableCopy];
     BOOL validKey = !MPIsNull(keyCopy) && [keyCopy isKindOfClass:[NSString class]];
     if (!validKey) {
@@ -1892,6 +1929,8 @@ static BOOL appBackgrounded = NO;
 }
 
 - (void)setUserIdentity:(NSString *)identityString identityType:(MPUserIdentity)identityType timestamp:(NSDate *)timestamp completionHandler:(void (^)(NSString *identityString, MPUserIdentity identityType, MPExecStatus execStatus))completionHandler {
+    [MPListenerController.sharedInstance onAPICalled:_cmd parameter1:identityString parameter2:@(identityType) parameter3:timestamp];
+    
     NSAssert(completionHandler != nil, @"completionHandler cannot be nil.");
     
     MPUserIdentityInstance *userIdentityNew = [[MPUserIdentityInstance alloc] initWithType:identityType
@@ -1985,12 +2024,15 @@ static BOOL appBackgrounded = NO;
 }
 
 - (void)clearUserAttributes {
+    [MPListenerController.sharedInstance onAPICalled:_cmd];
+    
     [[MPIUserDefaults standardUserDefaults] removeMPObjectForKey:@"ua"];
     [[MPIUserDefaults standardUserDefaults] synchronize];
 }
 
 #if TARGET_OS_IOS == 1
 - (MPExecStatus)beginLocationTrackingWithAccuracy:(CLLocationAccuracy)accuracy distanceFilter:(CLLocationDistance)distance authorizationRequest:(MPLocationAuthorizationRequest)authorizationRequest {
+    [MPListenerController.sharedInstance onAPICalled:_cmd parameter1:@(accuracy) parameter2:@(distance) parameter3:@(authorizationRequest)];
     
     if ([[MParticle sharedInstance].stateMachine.locationTrackingMode isEqualToString:kMPRemoteConfigForceFalse]) {
         return MPExecStatusDisabledRemotely;
@@ -2003,7 +2045,8 @@ static BOOL appBackgrounded = NO;
 }
 
 - (MPExecStatus)endLocationTracking {
-    
+    [MPListenerController.sharedInstance onAPICalled:_cmd];
+
     MPStateMachine *stateMachine = [MParticle sharedInstance].stateMachine;
     if ([stateMachine.locationTrackingMode isEqualToString:kMPRemoteConfigForceTrue]) {
         return MPExecStatusEnabledRemotely;

@@ -18,6 +18,7 @@
 #import "MPResponseConfig.h"
 #import "MPExceptionHandler.h"
 #import "MPBaseTestCase.h"
+#import "MPIUserDefaults.h"
 
 #if TARGET_OS_IOS == 1
 #import <CoreLocation/CoreLocation.h>
@@ -283,16 +284,16 @@
 - (void)testCheckAttributeValueEmpty {
     NSError *error = nil;
     BOOL success = [MPBackendController checkAttribute:[NSDictionary dictionary] key:@"foo"
-                                     value:@"  "
-                                     error:&error];
+                                                 value:@"  "
+                                                 error:&error];
     XCTAssertFalse(success);
     XCTAssertNotNil(error);
     XCTAssertEqual(kEmptyAttributeValue, error.code);
     
     error = nil;
     [MPBackendController checkAttribute:[NSDictionary dictionary] key:@"foo"
-                                     value:@""
-                                     error:&error];
+                                  value:@""
+                                  error:&error];
     XCTAssertNotNil(error);
     XCTAssertEqual(kEmptyAttributeValue, error.code);
 }
@@ -427,15 +428,11 @@
     [uploadBuilder withUserAttributes:[self.backendController userAttributesForUserId:[MPPersistenceController mpId]] deletedUserAttributes:nil];
     [uploadBuilder withUserIdentities:[self.backendController userIdentitiesForUserId:[MPPersistenceController mpId]]];
     [uploadBuilder build:^(MPUpload *upload) {
-        [persistence saveUpload:(MPUpload *)upload messageIds:uploadBuilder.preparedMessageIds operation:MPPersistenceOperationFlag];
+        [persistence saveUpload:upload];
         
         NSArray *messages = [persistence fetchMessagesInSession:self.session userId:[MPPersistenceController mpId]];
         
         XCTAssertNotNil(messages, @"There are no messages in session.");
-        
-        for (MPMessage *message in messages) {
-            XCTAssertTrue(message.uploadStatus == MPUploadStatusUploaded, @"Messages are not being marked as uploaded.");
-        }
         
         NSArray *uploads = [persistence fetchUploads];
         XCTAssertGreaterThan(uploads.count, 0, @"Messages are not being transfered to the Uploads table.");
@@ -476,7 +473,7 @@
         [uploadBuilder withUserAttributes:[self.backendController userAttributesForUserId:[MPPersistenceController mpId]] deletedUserAttributes:nil];
         [uploadBuilder withUserIdentities:[self.backendController userIdentitiesForUserId:[MPPersistenceController mpId]]];
         [uploadBuilder build:^(MPUpload *upload) {
-            [persistence saveUpload:(MPUpload *)upload messageIds:uploadBuilder.preparedMessageIds operation:MPPersistenceOperationFlag];
+            [persistence saveUpload:upload];
             
             NSArray *uploads = [persistence fetchUploads];
             XCTAssertGreaterThan(uploads.count, 0, @"Failed to retrieve messages to be uploaded.");
@@ -492,27 +489,8 @@
             
             uploads = [persistence fetchUploads];
             XCTAssertNil(uploads, @"Not deleting ramped upload messages.");
-            
-            NSArray *persistedMessages = [persistence fetchUploadedMessagesInSession:session];
-            MPUploadBuilder *uploadBuilder = [MPUploadBuilder newBuilderWithMpid:[MPPersistenceController mpId] sessionId:[NSNumber numberWithLong:self.session.sessionId] messages:persistedMessages sessionTimeout:100 uploadInterval:100];
-            XCTAssertNotNil(uploadBuilder, @"Upload builder should not have been nil.");
-            
-            if (!uploadBuilder) {
-                return;
-            }
-            
-            [uploadBuilder withUserAttributes:[self.backendController userAttributesForUserId:[MPPersistenceController mpId]] deletedUserAttributes:nil];
-            [uploadBuilder withUserIdentities:[self.backendController userIdentitiesForUserId:[MPPersistenceController mpId]]];
-            [uploadBuilder build:^(MPUpload *upload) {
-                [persistence saveUpload:(MPUpload *)upload messageIds:uploadBuilder.preparedMessageIds operation:MPPersistenceOperationDelete];
-                
-                NSArray *persistedMessages = [persistence fetchUploadedMessagesInSession:session];
-                XCTAssertNil(persistedMessages, @"Messages are not being deleted are being moved to the uploads table.");
-                
-                [expectation fulfill];
-            }];
         }];
-        
+        [expectation fulfill];
     });
     XCTestExpectation *expectation2 = [self expectationWithDescription:@"dispatch_after expectation"];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -567,13 +545,13 @@
         [expectation fulfill];
     });
     [self waitForExpectationsWithTimeout:BACKEND_TESTS_EXPECTATIONS_TIMEOUT handler:nil];
-
+    
 #endif
 }
 
 - (void)testSetIdentityToNil {
     [[self backendController] setUserIdentity:@"foo" identityType:MPUserIdentityEmail
-                                     timestamp:[NSDate date]
+                                    timestamp:[NSDate date]
                             completionHandler:^(NSString * _Nullable identityString, MPUserIdentity identityType, MPExecStatus execStatus) {
                                 
                             }];
@@ -751,10 +729,9 @@
     XCTAssertEqual(attributes.count, 1);
     NSString *value = attributes[@"foo tag 1"];
     XCTAssertEqualObjects(value, [NSNull null]);
-
 }
 
-- (void)testSetUserAttributeKits {    
+- (void)testSetUserAttributeKits {
     if (![MPKitContainer registeredKits]) {
         MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"KitTest" className:@"MPKitTestClassNoStartImmediately"];
         [MPKitContainer registerKit:kitRegister];
@@ -785,9 +762,8 @@
                                         kMPRemoteConfigExceptionHandlingModeKey:kMPRemoteConfigExceptionHandlingModeForce,
                                         kMPRemoteConfigSessionTimeoutKey:@112};
         
-        MPResponseConfig *responseConfig = [[MPResponseConfig alloc] initWithConfiguration:configuration];
-        
-        [MPResponseConfig save:responseConfig eTag:eTag];
+        NSTimeInterval requestTimestamp = [[NSDate date] timeIntervalSince1970];
+        [[MPIUserDefaults standardUserDefaults] setConfiguration:configuration eTag:eTag requestTimestamp:requestTimestamp currentAge:@"0" maxAge:nil];
     }
     
     [self.backendController setUserAttribute:@"foo attribute 3" value:@"foo value 3" timestamp:[NSDate date] completionHandler:^(NSString * _Nonnull key, id  _Nullable value, MPExecStatus execStatus) {}];
@@ -1027,7 +1003,7 @@
     MPSession *session = [[MPSession alloc] initWithStartTime:[[NSDate date] timeIntervalSince1970] userId:[MPPersistenceController mpId]];
     
     NSMutableArray *unlimitedMessages = [NSMutableArray array];
-    for (int i=0; i<10; i++) {        
+    for (int i=0; i<10; i++) {
         MPMessageBuilder *messageBuilder = [MPMessageBuilder newBuilderWithMessageType:MPMessageTypeEvent
                                                                                session:session
                                                                            messageInfo:@{@"MessageKey1":@"MessageValue1"}];
@@ -1071,7 +1047,7 @@
     MPMessage *message = [messageBuilder build];
     
     NSMutableArray *unlimitedMessages = [NSMutableArray array];
-    for (int i=0; i<10; i++) {    
+    for (int i=0; i<10; i++) {
         [unlimitedMessages addObject:message];
     }
     
