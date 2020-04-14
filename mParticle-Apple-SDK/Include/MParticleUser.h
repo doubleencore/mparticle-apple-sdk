@@ -53,7 +53,7 @@ NS_ASSUME_NONNULL_BEGIN
  Gets the user's shopping cart
  @returns An MPCart object
  */
-@property (readonly, strong, nonnull) MPCart *cart;
+@property (readonly, strong, nonnull) MPCart *cart DEPRECATED_MSG_ATTRIBUTE("The SDK no longer supports tracking the contents of your Cart. Please implement your own cart functionality and send us CommerceEvents as it is updated.");
 
 /**
  Increments the value of a user attribute by the provided amount. If the key does not
@@ -106,7 +106,7 @@ NS_ASSUME_NONNULL_BEGIN
  @param endpointId The endpoint id
  @param completionHandler A block to be called when the results are available. The user segments array is passed to this block
  */
-- (void)userSegments:(NSTimeInterval)timeout endpointId:(NSString *)endpointId completionHandler:(MPUserSegmentsHandler)completionHandler __attribute__((deprecated("")));
+- (void)userSegments:(NSTimeInterval)timeout endpointId:(NSString *)endpointId completionHandler:(MPUserSegmentsHandler)completionHandler __attribute__((deprecated("not available")));
 
 #pragma mark - Consent State
 /**

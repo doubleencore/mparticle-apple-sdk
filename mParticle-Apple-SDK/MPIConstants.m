@@ -1,7 +1,7 @@
 #import "MPIConstants.h"
 
 // mParticle SDK Version
-NSString *const kMParticleSDKVersion = @"7.10.4";
+NSString *const kMParticleSDKVersion = @"7.15.8";
 
 // Message Type (dt)
 NSString *const kMPMessageTypeKey = @"dt";
@@ -56,6 +56,11 @@ NSString *const kMPIsFirstTimeUserIdentityHasBeenSet = @"f";
 NSString *const kMPRemoteNotificationContentIdHistoryKey = @"cntid";
 NSString *const kMPRemoteNotificationTimestampHistoryKey = @"ts";
 NSString *const kMPForwardStatsRecord = @"fsr";
+NSString *const kMPEventCustomFlags = @"flags";
+NSString *const kMPContextKey = @"ctx";
+NSString *const kMPDataPlanKey = @"dpln";
+NSString *const kMPDataPlanIdKey = @"id";
+NSString *const kMPDataPlanVersionKey = @"v";
 
 // Consent
 NSString *const kMPConsentState = @"con";
@@ -63,20 +68,24 @@ NSString *const kMPConsentState = @"con";
 // GDPR Consent
 NSString *const kMPConsentStateGDPR = @"gdpr";
 
-NSString *const kMPConsentStateGDPRConsented = @"c";
-NSString *const kMPConsentStateGDPRDocument = @"d";
-NSString *const kMPConsentStateGDPRTimestamp = @"ts";
-NSString *const kMPConsentStateGDPRLocation = @"l";
-NSString *const kMPConsentStateGDPRHardwareId = @"h";
+// CCPA Consent
+NSString *const kMPConsentStateCCPA = @"ccpa";
+NSString *const kMPConsentStateCCPAPurpose = @"data_sale_opt_out";
+
+NSString *const kMPConsentStateConsented = @"c";
+NSString *const kMPConsentStateDocument = @"d";
+NSString *const kMPConsentStateTimestamp = @"ts";
+NSString *const kMPConsentStateLocation = @"l";
+NSString *const kMPConsentStateHardwareId = @"h";
 
 // Consent serialization
 NSString *const kMPConsentStateKey = @"consent_state";
 NSString *const kMPConsentStateGDPRKey = @"gdpr";
-NSString *const kMPConsentStateGDPRConsentedKey = @"consented";
-NSString *const kMPConsentStateGDPRDocumentKey = @"document";
-NSString *const kMPConsentStateGDPRTimestampKey = @"timestamp";
-NSString *const kMPConsentStateGDPRLocationKey = @"location";
-NSString *const kMPConsentStateGDPRHardwareIdKey = @"hardware_id";
+NSString *const kMPConsentStateConsentedKey = @"consented";
+NSString *const kMPConsentStateDocumentKey = @"document";
+NSString *const kMPConsentStateTimestampKey = @"timestamp";
+NSString *const kMPConsentStateLocationKey = @"location";
+NSString *const kMPConsentStateHardwareIdKey = @"hardware_id";
 
 // Consent filtering
 NSString *const kMPConsentKitFilter = @"crvf";
@@ -86,8 +95,9 @@ NSString *const kMPConsentKitFilterItemConsented = @"c";
 NSString *const kMPConsentKitFilterItemHash = @"h";
 NSString *const kMPConsentRegulationFilters = @"reg";
 NSString *const kMPConsentPurposeFilters = @"pur";
-NSString *const kMPConsentHashStringForGDPR = @"1";
-
+NSString *const kMPConsentGDPRRegulationType = @"1";
+NSString *const kMPConsentCCPARegulationType = @"2";
+NSString *const kMPConsentCCPAPurposeName = @"data_sale_opt_out";
 
 // Push Notifications
 NSString *const kMPDeviceTokenKey = @"to";
@@ -295,6 +305,7 @@ NSString *const kMPMessageTypeStringPushNotificationInteraction = @"pre";
 NSString *const kMPMessageTypeStringCommerceEvent = @"cm";
 NSString *const kMPMessageTypeStringUserAttributeChange = @"uac";
 NSString *const kMPMessageTypeStringUserIdentityChange = @"uic";
+NSString *const kMPMessageTypeStringMedia = @"media";
 
 // Event type strings
 NSString *const kMPEventTypeStringUnknown = @"Unknown";
@@ -306,7 +317,7 @@ NSString *const kMPEventTypeStringUserContent = @"UserContent";
 NSString *const kMPEventTypeStringUserPreference = @"UserPreference";
 NSString *const kMPEventTypeStringSocial = @"Social";
 NSString *const kMPEventTypeStringOther = @"Other";
-NSString *const kMPEventTypeStringMediaDiscontinued = @"Media(discontinued)";
+NSString *const kMPEventTypeStringMedia = @"Media";
 NSString *const kMPEventTypeStringProductAddToCart = @"ProductAddToCart";
 NSString *const kMPEventTypeStringProductRemoveFromCart = @"ProductRemoveFromCart";
 NSString *const kMPEventTypeStringProductCheckout = @"ProductCheckout";
@@ -367,6 +378,8 @@ const NSTimeInterval SEARCH_ADS_ATTRIBUTION_GLOBAL_TIMEOUT_SECONDS = 30.0;
 const NSTimeInterval SEARCH_ADS_ATTRIBUTION_DELAY_BEFORE_RETRY = 3.0;
 const NSInteger SEARCH_ADS_ATTRIBUTION_MAX_RETRIES = 4;
 
+const NSTimeInterval NETWORK_REQUEST_MAX_WAIT_SECONDS = 10;
+
 // Attributes limits
 const NSInteger LIMIT_ATTR_COUNT = 100;
 const NSInteger LIMIT_ATTR_KEY_LENGTH = 256;
@@ -376,6 +389,7 @@ const NSInteger MAX_USER_ATTR_LIST_ENTRY_LENGTH = 512;
 
 // Consent limits
 const NSInteger MAX_GDPR_CONSENT_PURPOSES = 100;
+const NSInteger MAX_CCPA_CONSENT_PURPOSES = 100;
 
 // Size limits
 const NSInteger MAX_BYTES_PER_EVENT = 100*1024;

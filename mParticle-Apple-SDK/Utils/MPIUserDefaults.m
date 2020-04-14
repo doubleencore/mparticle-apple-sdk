@@ -2,7 +2,7 @@
 #import "MPPersistenceController.h"
 #import "MPIConstants.h"
 #import "MPILogger.h"
-#import "MParticle.h"
+#import "mParticle.h"
 #import "MPKitConfiguration.h"
 #import "MPArchivist.h"
 #import "MPStateMachine.h"
@@ -444,6 +444,19 @@ static NSString *const NSUserDefaultsPrefix = @"mParticle::";
     } else {
         [self removeMPObjectForKey:key userId:[MPPersistenceController mpId]];
     }
+}
+
++ (NSString *)stringFromDeviceToken:(NSData *)deviceToken {
+    NSUInteger length = deviceToken.length;
+    if (length == 0) {
+        return nil;
+    }
+    const unsigned char *buffer = deviceToken.bytes;
+    NSMutableString *hexString  = [NSMutableString stringWithCapacity:(length * 2)];
+    for (int i = 0; i < length; ++i) {
+        [hexString appendFormat:@"%02x", buffer[i]];
+    }
+    return [hexString copy];
 }
 
 

@@ -15,6 +15,7 @@
 @interface MParticle ()
 
 @property (nonatomic, strong) MPPersistenceController *persistenceController;
+@property (nonatomic, strong, readwrite) MPNetworkOptions *networkOptions;
 
 @end
 
@@ -69,6 +70,163 @@ Method originalMethod = nil; Method swizzleMethod = nil;
     [self deswizzle];
     
     XCTAssert([configURL.absoluteString rangeOfString:@"/config?av=1.2.3.4.5678%20(bd12345ff)"].location != NSNotFound);
+    XCTAssert(![configURL.accessibilityHint isEqualToString:@"identity"]);
+}
+
+- (void)testConfigURLWithOptions {
+    [self swizzleInstanceMethodForInstancesOfClass:[NSBundle class] selector:@selector(infoDictionary)];
+    MPNetworkOptions *options = [[MPNetworkOptions alloc] init];
+    options.configHost = @"config.mpproxy.example.com";
+    [MParticle sharedInstance].networkOptions = options;
+    MPNetworkCommunication *networkCommunication = [[MPNetworkCommunication alloc] init];
+    NSURL *configURL = [networkCommunication configURL];
+    
+    [self deswizzle];
+    
+    XCTAssert([configURL.absoluteString rangeOfString:@"config.mpproxy.example.com/v4/"].location != NSNotFound);
+    XCTAssert(![configURL.accessibilityHint isEqualToString:@"identity"]);
+}
+
+- (void)testConfigURLWithOptionsAndOverride {
+    [self swizzleInstanceMethodForInstancesOfClass:[NSBundle class] selector:@selector(infoDictionary)];
+    MPNetworkOptions *options = [[MPNetworkOptions alloc] init];
+    options.configHost = @"config.mpproxy.example.com";
+    options.overridesConfigSubdirectory = true;
+    [MParticle sharedInstance].networkOptions = options;
+    MPNetworkCommunication *networkCommunication = [[MPNetworkCommunication alloc] init];
+    NSURL *configURL = [networkCommunication configURL];
+    
+    [self deswizzle];
+    
+    XCTAssert([configURL.absoluteString rangeOfString:@"config.mpproxy.example.com"].location != NSNotFound);
+    XCTAssert([configURL.absoluteString rangeOfString:@"v4"].location == NSNotFound);
+    XCTAssert(![configURL.accessibilityHint isEqualToString:@"identity"]);
+}
+
+- (void)testModifyURL {
+    [self swizzleInstanceMethodForInstancesOfClass:[NSBundle class] selector:@selector(infoDictionary)];
+    
+    MPNetworkCommunication *networkCommunication = [[MPNetworkCommunication alloc] init];
+    NSURL *modifyURL = [networkCommunication modifyURL];
+    
+    [self deswizzle];
+    
+    XCTAssert([modifyURL.absoluteString rangeOfString:@"https://identity.mparticle.com/v1/0/modify"].location != NSNotFound);
+    XCTAssert([modifyURL.accessibilityHint isEqualToString:@"identity"]);
+}
+
+- (void)testModifyURLWithOptions {
+    [self swizzleInstanceMethodForInstancesOfClass:[NSBundle class] selector:@selector(infoDictionary)];
+    MPNetworkOptions *options = [[MPNetworkOptions alloc] init];
+    options.identityHost = @"identity.mpproxy.example.com";
+    [MParticle sharedInstance].networkOptions = options;
+    
+    MPNetworkCommunication *networkCommunication = [[MPNetworkCommunication alloc] init];
+    NSURL *modifyURL = [networkCommunication modifyURL];
+    
+    [self deswizzle];
+    
+    XCTAssert([modifyURL.absoluteString rangeOfString:@"https://identity.mpproxy.example.com/v1/0/modify"].location != NSNotFound);
+    XCTAssert([modifyURL.accessibilityHint isEqualToString:@"identity"]);
+}
+
+
+- (void)testAliasURL {
+    [self swizzleInstanceMethodForInstancesOfClass:[NSBundle class] selector:@selector(infoDictionary)];
+    
+    MPNetworkCommunication *networkCommunication = [[MPNetworkCommunication alloc] init];
+    NSURL *aliasURL = [networkCommunication aliasURL];
+    
+    [self deswizzle];
+    
+    XCTAssert([aliasURL.absoluteString rangeOfString:@"https://nativesdks.mparticle.com/v1/identity/"].location != NSNotFound);
+    XCTAssert([aliasURL.accessibilityHint isEqualToString:@"identity"]);
+}
+
+- (void)testAliasURLWithOptions {
+    [self swizzleInstanceMethodForInstancesOfClass:[NSBundle class] selector:@selector(infoDictionary)];
+    MPNetworkOptions *options = [[MPNetworkOptions alloc] init];
+    options.eventsHost = @"events.mpproxy.example.com";
+    [MParticle sharedInstance].networkOptions = options;
+    
+    MPNetworkCommunication *networkCommunication = [[MPNetworkCommunication alloc] init];
+    NSURL *aliasURL = [networkCommunication aliasURL];
+    
+    [self deswizzle];
+    
+    XCTAssert([aliasURL.absoluteString rangeOfString:@"https://events.mpproxy.example.com/v1/identity/"].location != NSNotFound);
+    XCTAssert([aliasURL.accessibilityHint isEqualToString:@"identity"]);
+}
+
+- (void)testAliasURLWithOptionsAndOverride {
+    [self swizzleInstanceMethodForInstancesOfClass:[NSBundle class] selector:@selector(infoDictionary)];
+    MPNetworkOptions *options = [[MPNetworkOptions alloc] init];
+    options.eventsHost = @"events.mpproxy.example.com";
+    options.overridesEventsSubdirectory = true;
+    [MParticle sharedInstance].networkOptions = options;
+    
+    MPNetworkCommunication *networkCommunication = [[MPNetworkCommunication alloc] init];
+    NSURL *aliasURL = [networkCommunication aliasURL];
+    
+    [self deswizzle];
+    
+    XCTAssert([aliasURL.absoluteString rangeOfString:@"https://events.mpproxy.example.com/"].location != NSNotFound);
+    XCTAssert([aliasURL.absoluteString rangeOfString:@"v1"].location == NSNotFound);
+    XCTAssert([aliasURL.absoluteString rangeOfString:@"identity"].location == NSNotFound);
+    XCTAssert([aliasURL.accessibilityHint isEqualToString:@"identity"]);
+}
+
+- (void)testAliasURLWithEventsOnly {
+    [self swizzleInstanceMethodForInstancesOfClass:[NSBundle class] selector:@selector(infoDictionary)];
+    MPNetworkOptions *options = [[MPNetworkOptions alloc] init];
+    options.eventsHost = @"events.mpproxy.example.com";
+    options.eventsOnly = true;
+    [MParticle sharedInstance].networkOptions = options;
+    
+    MPNetworkCommunication *networkCommunication = [[MPNetworkCommunication alloc] init];
+    NSURL *aliasURL = [networkCommunication aliasURL];
+    
+    [self deswizzle];
+    
+    XCTAssert([aliasURL.absoluteString rangeOfString:@"https://nativesdks.mparticle.com/v1/identity/"].location != NSNotFound);
+    XCTAssert([aliasURL.accessibilityHint isEqualToString:@"identity"]);
+}
+
+- (void)testAliasURLWithOptionsAndEventsOnly {
+    [self swizzleInstanceMethodForInstancesOfClass:[NSBundle class] selector:@selector(infoDictionary)];
+    MPNetworkOptions *options = [[MPNetworkOptions alloc] init];
+    options.eventsHost = @"events.mpproxy.example.com";
+    options.aliasHost = @"alias.mpproxy.example.com";
+    options.eventsOnly = true;
+    [MParticle sharedInstance].networkOptions = options;
+    
+    MPNetworkCommunication *networkCommunication = [[MPNetworkCommunication alloc] init];
+    NSURL *aliasURL = [networkCommunication aliasURL];
+    
+    [self deswizzle];
+    
+    XCTAssert([aliasURL.absoluteString rangeOfString:@"https://alias.mpproxy.example.com/v1/identity/"].location != NSNotFound);
+    XCTAssert([aliasURL.accessibilityHint isEqualToString:@"identity"]);
+}
+
+- (void)testAliasURLWithOptionsAndOverrideAndEventsOnly {
+    [self swizzleInstanceMethodForInstancesOfClass:[NSBundle class] selector:@selector(infoDictionary)];
+    MPNetworkOptions *options = [[MPNetworkOptions alloc] init];
+    options.eventsHost = @"events.mpproxy.example.com";
+    options.aliasHost = @"alias.mpproxy.example.com";
+    options.overridesAliasSubdirectory = true;
+    options.eventsOnly = true;
+    [MParticle sharedInstance].networkOptions = options;
+    
+    MPNetworkCommunication *networkCommunication = [[MPNetworkCommunication alloc] init];
+    NSURL *aliasURL = [networkCommunication aliasURL];
+    
+    [self deswizzle];
+    
+    XCTAssert([aliasURL.absoluteString rangeOfString:@"https://alias.mpproxy.example.com/"].location != NSNotFound);
+    XCTAssert([aliasURL.absoluteString rangeOfString:@"v1"].location == NSNotFound);
+    XCTAssert([aliasURL.absoluteString rangeOfString:@"identity"].location == NSNotFound);
+    XCTAssert([aliasURL.accessibilityHint isEqualToString:@"identity"]);
 }
 
 - (void)testEmptyUploadsArray {
@@ -83,7 +241,7 @@ Method originalMethod = nil; Method swizzleMethod = nil;
 
 - (void)testUploadsArrayZipFail {
     MPNetworkCommunication *networkCommunication = [[MPNetworkCommunication alloc] init];
-    MPUpload *upload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{}];
+    MPUpload *upload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{} dataPlanId:@"test" dataPlanVersion:@(1)];
     NSArray *uploads = @[upload];
     id mockZip = OCMClassMock([MPZip class]);
     OCMStub([mockZip compressedDataFromData:OCMOCK_ANY]).andReturn(nil);
@@ -123,7 +281,7 @@ Method originalMethod = nil; Method swizzleMethod = nil;
     id mockNetworkCommunication = OCMPartialMock(networkCommunication);
     [[[mockNetworkCommunication stub] andReturn:mockConnector] makeConnector];
     
-    MPUpload *messageUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{}];
+    MPUpload *messageUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{} dataPlanId:@"test" dataPlanVersion:@(1)];
     
     BOOL actualShouldStop = [networkCommunication performMessageUpload:messageUpload];
     XCTAssertEqual(shouldStop, actualShouldStop, @"Return code assertion: %d", returnCode);
@@ -161,7 +319,7 @@ Method originalMethod = nil; Method swizzleMethod = nil;
     id mockNetworkCommunication = OCMPartialMock(networkCommunication);
     [[[mockNetworkCommunication stub] andReturn:mockConnector] makeConnector];
     
-    MPUpload *aliasUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{}];
+    MPUpload *aliasUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{} dataPlanId:@"test" dataPlanVersion:@(1)];
     aliasUpload.uploadType = MPUploadTypeAlias;
     
     BOOL actualShouldStop = [networkCommunication performAliasUpload:aliasUpload];
@@ -191,8 +349,8 @@ Method originalMethod = nil; Method swizzleMethod = nil;
     MParticle *instance = [MParticle sharedInstance];
     instance.persistenceController = mockPersistenceController;
     
-    MPUpload *eventUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{}];
-    MPUpload *aliasUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{}];
+    MPUpload *eventUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{} dataPlanId:@"test" dataPlanVersion:@(1)];
+    MPUpload *aliasUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{} dataPlanId:@"test" dataPlanVersion:@(1)];
     aliasUpload.uploadType = MPUploadTypeAlias;
     
     NSArray *uploads = @[eventUpload, aliasUpload];
@@ -223,8 +381,8 @@ Method originalMethod = nil; Method swizzleMethod = nil;
     
     id mockPersistenceController = OCMClassMock([MPPersistenceController class]);
     
-    MPUpload *eventUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{}];
-    MPUpload *aliasUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{}];
+    MPUpload *eventUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{} dataPlanId:@"test" dataPlanVersion:@(1)];
+    MPUpload *aliasUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{} dataPlanId:@"test" dataPlanVersion:@(1)];
     aliasUpload.uploadType = MPUploadTypeAlias;
     
     [[mockPersistenceController expect] deleteUpload:eventUpload];
@@ -261,8 +419,8 @@ Method originalMethod = nil; Method swizzleMethod = nil;
     
     id mockPersistenceController = OCMClassMock([MPPersistenceController class]);
     
-    MPUpload *eventUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{}];
-    MPUpload *aliasUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{}];
+    MPUpload *eventUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{} dataPlanId:@"test" dataPlanVersion:@(1)];
+    MPUpload *aliasUpload = [[MPUpload alloc] initWithSessionId:@1 uploadDictionary:@{} dataPlanId:@"test" dataPlanVersion:@(1)];
     aliasUpload.uploadType = MPUploadTypeAlias;
     
     [[mockPersistenceController expect] deleteUpload:eventUpload];

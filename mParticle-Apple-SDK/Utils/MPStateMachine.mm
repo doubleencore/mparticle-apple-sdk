@@ -25,6 +25,7 @@
 NSString *const kCookieDateKey = @"e";
 NSString *const kMinUploadDateKey = @"MinUploadDate";
 NSString *const kMinAliasDateKey = @"MinAliasDate";
+NSString *const kMPStateKey = @"state";
 
 static MPEnvironment runningEnvironment = MPEnvironmentAutoDetect;
 static BOOL runningInBackground = NO;
@@ -52,7 +53,6 @@ static BOOL runningInBackground = NO;
 
 @implementation MPStateMachine
 
-@synthesize consoleLogging = _consoleLogging;
 @synthesize consumerInfo = _consumerInfo;
 @synthesize deviceTokenType = _deviceTokenType;
 @synthesize firstSeenInstallation = _firstSeenInstallation;
@@ -83,7 +83,6 @@ static BOOL runningInBackground = NO;
         _uploadStatus = MPUploadStatusBatch;
         _startTime = [NSDate dateWithTimeIntervalSinceNow:-1];
         _backgrounded = NO;
-        _consoleLogging = MPConsoleLoggingAutoDetect;
         _dataRamped = NO;
         _installationType = MPInstallationTypeAutodetect;
         _launchDate = [NSDate date];
@@ -118,11 +117,6 @@ static BOOL runningInBackground = NO;
                                      object:nil];
             
             [notificationCenter addObserver:strongSelf
-                                   selector:@selector(handleMemoryWarningNotification:)
-                                       name:UIApplicationDidReceiveMemoryWarningNotification
-                                     object:nil];
-            
-            [notificationCenter addObserver:strongSelf
                                    selector:@selector(handleReachabilityChanged:)
                                        name:MParticleReachabilityChangedNotification
                                      object:nil];
@@ -140,7 +134,6 @@ static BOOL runningInBackground = NO;
     [notificationCenter removeObserver:self name:UIApplicationDidEnterBackgroundNotification object:nil];
     [notificationCenter removeObserver:self name:UIApplicationWillEnterForegroundNotification object:nil];
     [notificationCenter removeObserver:self name:UIApplicationWillTerminateNotification object:nil];
-    [notificationCenter removeObserver:self name:UIApplicationDidReceiveMemoryWarningNotification object:nil];
     [notificationCenter removeObserver:self name:MParticleReachabilityChangedNotification object:nil];
     
     if (_reachability != nil) {
@@ -280,9 +273,6 @@ static BOOL runningInBackground = NO;
     [MPApplication updateLastUseDate:_launchDate];
 }
 
-- (void)handleMemoryWarningNotification:(NSNotification *)notification {
-}
-
 - (void)handleReachabilityChanged:(NSNotification *)notification {
     self.networkStatus = [self.reachability currentReachabilityStatus];
 }
@@ -348,29 +338,6 @@ static BOOL runningInBackground = NO;
 }
 
 #pragma mark Public accessors
-- (MPConsoleLogging)consoleLogging {
-    if (_consoleLogging != MPConsoleLoggingAutoDetect) {
-        return _consoleLogging;
-    }
-    
-    _consoleLogging = [MPStateMachine environment] == MPEnvironmentProduction ? MPConsoleLoggingSuppress : MPConsoleLoggingDisplay;
-    if (_consoleLogging == MPConsoleLoggingSuppress) {
-        _logLevel = MPILogLevelNone;
-    }
-    
-    return _consoleLogging;
-}
-
-- (void)setConsoleLogging:(MPConsoleLogging)consoleLogging {
-    if (consoleLogging == MPConsoleLoggingSuppress) {
-        _logLevel = MPILogLevelNone;
-    } else if ([MPStateMachine environment] == MPEnvironmentDevelopment && _consoleLogging != MPConsoleLoggingSuppress) {
-        _logLevel = MPILogLevelWarning;
-    }
-    
-    _consoleLogging = consoleLogging;
-}
-
 - (MPConsumerInfo *)consumerInfo {
     if (_consumerInfo) {
         return _consumerInfo;
@@ -387,20 +354,11 @@ static BOOL runningInBackground = NO;
     return _consumerInfo;
 }
 
-- (MPILogLevel)logLevel {
-    @synchronized(self) {
-        return _logLevel;
-    }
-}
-
 - (void)setLogLevel:(MPILogLevel)logLevel {
     @synchronized(self) {
         _logLevel = logLevel;
-        
-        if (logLevel == MPILogLevelNone) {
-            _consoleLogging = MPConsoleLoggingSuppress;
-        }
     }
+    
 }
 
 - (NSString *)deviceTokenType {

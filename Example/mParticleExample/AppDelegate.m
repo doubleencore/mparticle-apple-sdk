@@ -24,8 +24,22 @@
             //handle failure - see https://docs.mparticle.com/developers/sdk/ios/idsync/#error-handling
         }
     };
+    options.logLevel = MPILogLevelDebug;
+
     [[MParticle sharedInstance] startWithOptions:options];
-    [MParticle sharedInstance].logLevel = MPILogLevelDebug;
+
+    UNUserNotificationCenter* center = [UNUserNotificationCenter currentNotificationCenter];
+    [center requestAuthorizationWithOptions:
+             (UNAuthorizationOptionAlert +
+              UNAuthorizationOptionSound + UNAuthorizationOptionBadge)
+       completionHandler:^(BOOL granted, NSError * _Nullable error) {
+        if (error != nil) {
+            NSLog(@"Fail to Register: %@", error.localizedDescription);
+        } else {
+            NSLog(@"Notification Request Successful");
+        }
+    }];
+    
     return YES;
 }
 

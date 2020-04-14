@@ -104,6 +104,12 @@ extern NSString * _Nonnull const kMPRemoteNotificationCampaignHistoryKey;
 extern NSString * _Nonnull const kMPRemoteNotificationContentIdHistoryKey;
 extern NSString * _Nonnull const kMPRemoteNotificationTimestampHistoryKey;
 extern NSString * _Nonnull const kMPForwardStatsRecord;
+extern NSString * _Nonnull const kMPEventCustomFlags;
+extern NSString * _Nonnull const kMPContextKey;
+extern NSString * _Nonnull const kMPDataPlanKey;
+extern NSString * _Nonnull const kMPDataPlanIdKey;
+extern NSString * _Nonnull const kMPDataPlanVersionKey;
+
 
 // Consent
 extern NSString * _Nonnull const kMPConsentState;
@@ -111,20 +117,24 @@ extern NSString * _Nonnull const kMPConsentState;
 // GDPR Consent
 extern NSString * _Nonnull const kMPConsentStateGDPR;
 
-extern NSString * _Nonnull const kMPConsentStateGDPRConsented;
-extern NSString * _Nonnull const kMPConsentStateGDPRDocument;
-extern NSString * _Nonnull const kMPConsentStateGDPRTimestamp;
-extern NSString * _Nonnull const kMPConsentStateGDPRLocation;
-extern NSString * _Nonnull const kMPConsentStateGDPRHardwareId;
+// CCPA Consent
+extern NSString * _Nonnull const kMPConsentStateCCPA;
+extern NSString * _Nonnull const kMPConsentStateCCPAPurpose;
+
+extern NSString * _Nonnull const kMPConsentStateConsented;
+extern NSString * _Nonnull const kMPConsentStateDocument;
+extern NSString * _Nonnull const kMPConsentStateTimestamp;
+extern NSString * _Nonnull const kMPConsentStateLocation;
+extern NSString * _Nonnull const kMPConsentStateHardwareId;
 
 // Consent serialization
 extern NSString * _Nonnull const kMPConsentStateKey;
 extern NSString * _Nonnull const kMPConsentStateGDPRKey;
-extern NSString * _Nonnull const kMPConsentStateGDPRConsentedKey;
-extern NSString * _Nonnull const kMPConsentStateGDPRDocumentKey;
-extern NSString * _Nonnull const kMPConsentStateGDPRTimestampKey;
-extern NSString * _Nonnull const kMPConsentStateGDPRLocationKey;
-extern NSString * _Nonnull const kMPConsentStateGDPRHardwareIdKey;
+extern NSString * _Nonnull const kMPConsentStateConsentedKey;
+extern NSString * _Nonnull const kMPConsentStateDocumentKey;
+extern NSString * _Nonnull const kMPConsentStateTimestampKey;
+extern NSString * _Nonnull const kMPConsentStateLocationKey;
+extern NSString * _Nonnull const kMPConsentStateHardwareIdKey;
 
 // Consent filtering
 extern NSString * _Nonnull const kMPConsentKitFilter;
@@ -134,7 +144,9 @@ extern NSString * _Nonnull const kMPConsentKitFilterItemConsented;
 extern NSString * _Nonnull const kMPConsentKitFilterItemHash;
 extern NSString * _Nonnull const kMPConsentRegulationFilters;
 extern NSString * _Nonnull const kMPConsentPurposeFilters;
-extern NSString * _Nonnull const kMPConsentHashStringForGDPR;
+extern NSString * _Nonnull const kMPConsentGDPRRegulationType;
+extern NSString * _Nonnull const kMPConsentCCPARegulationType;
+extern NSString * _Nonnull const kMPConsentCCPAPurposeName;
 
 // Push Notifications
 extern NSString * _Nonnull const kMPDeviceTokenKey;
@@ -342,6 +354,7 @@ extern NSString * _Nonnull const kMPMessageTypeStringPushNotificationInteraction
 extern NSString * _Nonnull const kMPMessageTypeStringCommerceEvent;
 extern NSString * _Nonnull const kMPMessageTypeStringUserAttributeChange;
 extern NSString * _Nonnull const kMPMessageTypeStringUserIdentityChange;
+extern NSString * _Nonnull const kMPMessageTypeStringMedia;
 
 // Event type strings
 extern NSString * _Nonnull const kMPEventTypeStringUnknown;
@@ -367,6 +380,7 @@ extern NSString * _Nonnull const kMPEventTypeStringPromotionClick;
 extern NSString * _Nonnull const kMPEventTypeStringProductAddToWishlist;
 extern NSString * _Nonnull const kMPEventTypeStringProductRemoveFromWishlist;
 extern NSString * _Nonnull const kMPEventTypeStringProductImpression;
+extern NSString * _Nonnull const kMPEventTypeStringMedia;
 
 //
 // Primitive data type constants
@@ -394,6 +408,9 @@ extern const NSTimeInterval SEARCH_ADS_ATTRIBUTION_GLOBAL_TIMEOUT_SECONDS;
 extern const NSTimeInterval SEARCH_ADS_ATTRIBUTION_DELAY_BEFORE_RETRY;
 extern const NSInteger SEARCH_ADS_ATTRIBUTION_MAX_RETRIES;
 
+// Network request timeout
+extern const NSTimeInterval NETWORK_REQUEST_MAX_WAIT_SECONDS;
+
 // Attributes limits
 extern const NSInteger LIMIT_ATTR_COUNT;
 extern const NSInteger LIMIT_ATTR_KEY_LENGTH;
@@ -403,6 +420,7 @@ extern const NSInteger MAX_USER_ATTR_LIST_ENTRY_LENGTH;
 
 // Consent limits
 extern const NSInteger MAX_GDPR_CONSENT_PURPOSES;
+extern const NSInteger MAX_CCPA_CONSENT_PURPOSES;
 
 // Size limits
 extern const NSInteger MAX_BYTES_PER_EVENT;

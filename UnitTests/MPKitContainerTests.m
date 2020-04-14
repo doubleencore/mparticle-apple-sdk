@@ -2,6 +2,7 @@
 #import "MPKitContainer.h"
 #import "MPIConstants.h"
 #import "MPForwardQueueItem.h"
+#import "MPBaseEvent.h"
 #import "MPCommerceEvent.h"
 #import "MPCommerceEvent+Dictionary.h"
 #import "MPProduct.h"
@@ -501,7 +502,7 @@
     
     MPEvent *event = [[MPEvent alloc] initWithName:@"Dinosaur Run" type:MPEventTypeOther];
     event.duration = @2;
-    event.info = @{@"speed":@25,
+    event.customAttributes = @{@"speed":@25,
                    @"modality":@"sprinting"};
     event.category = @"Olympic Games";
     
@@ -705,7 +706,7 @@
     
     MPEvent *event = [[MPEvent alloc] initWithName:@"Dinosaur Run" type:MPEventTypeOther];
     event.duration = @2;
-    event.info = @{@"speed":@25,
+    event.customAttributes = @{@"speed":@25,
                    @"modality":@"sprinting"};
     event.category = @"Olympic Games";
     
@@ -786,7 +787,7 @@
     
     MPEvent *event = [[MPEvent alloc] initWithName:@"Purchase" type:MPEventTypeTransaction];
     event.duration = @2;
-    event.info = @{@"Product":@"Running shoes",
+    event.customAttributes = @{@"Product":@"Running shoes",
                    @"modality":@"sprinting"};
     event.category = @"Olympic Games";
     
@@ -824,7 +825,7 @@
     
     event = [[MPEvent alloc] initWithName:@"Purchase" type:MPEventTypeTransaction];
     event.duration = @2;
-    event.info = @{@"Product":@"Running shoes",
+    event.customAttributes = @{@"Product":@"Running shoes",
                    @"modality":@"sprinting"};
     event.category = @"Olympic Games";
     
@@ -1074,8 +1075,7 @@
     commerceEvent.checkoutOptions = @"option 1";
     commerceEvent.screenName = @"Time Traveling";
     commerceEvent.checkoutStep = 1;
-    commerceEvent[@"key_string"] = @"val_string";
-    commerceEvent[@"key_number"] = @"3.14";
+    commerceEvent.customAttributes = @{@"key_string": @"val_string", @"key_number": @"3.14"};
     
     MPTransactionAttributes *transactionAttributes = [[MPTransactionAttributes alloc] init];
     transactionAttributes.affiliation = @"Doctor";
@@ -1128,8 +1128,7 @@
     commerceEvent.checkoutOptions = @"option 1";
     commerceEvent.screenName = @"Time Traveling";
     commerceEvent.checkoutStep = 1;
-    commerceEvent[@"key_string"] = @"val_string";
-    commerceEvent[@"key_number"] = @"3.14";
+    commerceEvent.customAttributes = @{@"key_string": @"val_string", @"key_number": @"3.14"};
     
     product = [[MPProduct alloc] initWithName:@"Tardis" sku:@"trds" quantity:@1 price:@7.89];
     product.brand = @"Gallifrey Tardis";
@@ -1193,8 +1192,7 @@
     commerceEvent.checkoutOptions = @"option 1";
     commerceEvent.screenName = @"Time Traveling";
     commerceEvent.checkoutStep = 1;
-    commerceEvent[@"key_string"] = @"val_string";
-    commerceEvent[@"key_number"] = @"3.14";
+    commerceEvent.customAttributes = @{@"key_string": @"val_string", @"key_number": @"3.14"};
     
     product = [[MPProduct alloc] initWithName:@"Tardis" sku:@"trds" quantity:@1 price:@7.89];
     product.brand = @"Gallifrey Tardis";
@@ -1390,16 +1388,17 @@
     [kitContainer configureKits:configurations];
     
     MPEvent *event = [[MPEvent alloc] initWithName:@"subscription_success" type:MPEventTypeTransaction];
-    event.info = @{@"plan":@"premium", @"plan_color":@"gold", @"boolean":@YES};
+    event.customAttributes = @{@"plan":@"premium", @"plan_color":@"gold", @"boolean":@YES};
     
     MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
     MPKitFilter *kitFilter = [kitContainer filter:kitRegister forEvent:event selector:@selector(logEvent:)];
 
-    MPEvent *forwardEvent = kitFilter.forwardEvent;
+    XCTAssert([kitFilter.forwardEvent isKindOfClass:[MPEvent class]]);
+    MPEvent *forwardEvent = (MPEvent *)kitFilter.forwardEvent;
     XCTAssertNotNil(forwardEvent);
     XCTAssertEqualObjects(forwardEvent.name, @"new_premium_subscriber");
-    XCTAssertNotNil(forwardEvent.info);
-    XCTAssertEqual(forwardEvent.info.count, 3);
+    XCTAssertNotNil(forwardEvent.customAttributes);
+    XCTAssertEqual(forwardEvent.customAttributes.count, 3);
 }
 
 - (void)testForwardAppsFlyerCommerceEvent {
@@ -1562,10 +1561,11 @@
     MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
     MPKitFilter *kitFilter = [kitContainer filter:kitRegister forCommerceEvent:commerceEvent];
     
-    MPEvent *event = kitFilter.forwardEvent;
-    XCTAssertEqualObjects(event.info[@"af_quantity"], @"1");
-    XCTAssertEqualObjects(event.info[@"af_content_id"], @"OutATime");
-    XCTAssertEqualObjects(event.info[@"af_content_type"], @"Time Machine");
+    XCTAssert([kitFilter.forwardEvent isKindOfClass:[MPEvent class]]);
+    MPEvent *event = (MPEvent *)kitFilter.forwardEvent;
+    XCTAssertEqualObjects(event.customAttributes[@"af_quantity"], @"1");
+    XCTAssertEqualObjects(event.customAttributes[@"af_content_id"], @"OutATime");
+    XCTAssertEqualObjects(event.customAttributes[@"af_content_type"], @"Time Machine");
     XCTAssertEqualObjects(event.name, @"af_add_to_cart");
 }
 
@@ -1647,16 +1647,17 @@
     [kitContainer configureKits:configurations];
 
     MPEvent *event = [[MPEvent alloc] initWithName:@"SUBSCRIPTION_END" type:MPEventTypeTransaction];
-    event.info = @{@"plan_id":@"3", @"outcome":@"new_subscription"};
+    event.customAttributes = @{@"plan_id":@"3", @"outcome":@"new_subscription"};
     NSMutableArray<NSString *> *foundEventNames = [NSMutableArray arrayWithCapacity:2];
 
     MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
     MPKitFilter *kitFilter = [kitContainer filter:kitRegister forEvent:event selector:@selector(logEvent:)];
 
-    MPEvent *forwardEvent = kitFilter.forwardEvent;
+    XCTAssert([kitFilter.forwardEvent isKindOfClass:[MPEvent class]]);
+    MPEvent *forwardEvent = (MPEvent *)kitFilter.forwardEvent;
     XCTAssertNotNil(forwardEvent);
-    XCTAssertNotNil(forwardEvent.info);
-    XCTAssertEqual(forwardEvent.info.count, 2);
+    XCTAssertNotNil(forwardEvent.customAttributes);
+    XCTAssertEqual(forwardEvent.customAttributes.count, 2);
     
     [foundEventNames addObject:forwardEvent.name];
     
@@ -1720,12 +1721,13 @@
     [kitContainer configureKits:configurations];
 
     MPEvent *event = [[MPEvent alloc] initWithName:@"SUBSCRIPTION_END" type:MPEventTypeTransaction];
-    event.info = @{@"plan_id":@"3", @"outcome":@"new_subscription", @"gender":@"female"};
+    event.customAttributes = @{@"plan_id":@"3", @"outcome":@"new_subscription", @"gender":@"female"};
     
     MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
     MPKitFilter *kitFilter = [kitContainer filter:kitRegister forEvent:event selector:@selector(logEvent:)];
     
-    MPEvent *forwardEvent = kitFilter.forwardEvent;
+    XCTAssert([kitFilter.forwardEvent isKindOfClass:[MPEvent class]]);
+    MPEvent *forwardEvent = (MPEvent *)kitFilter.forwardEvent;
     XCTAssertNotNil(forwardEvent);
     XCTAssertNotEqualObjects(forwardEvent.name, @"X_NEW_MALE_SUBSCRIPTION");
     XCTAssertEqualObjects(forwardEvent.name, @"SUBSCRIPTION_END");
@@ -1776,12 +1778,13 @@
     [kitContainer configureKits:configurations];
 
     MPEvent *event = [[MPEvent alloc] initWithName:@"SUBSCRIPTION_END" type:MPEventTypeTransaction];
-    event.info = @{@"outcome":@"not_new_subscription"};
+    event.customAttributes = @{@"outcome":@"not_new_subscription"};
     
     MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
     MPKitFilter *kitFilter = [kitContainer filter:kitRegister forEvent:event selector:@selector(logEvent:)];
     
-    MPEvent *forwardEvent = kitFilter.forwardEvent;
+    XCTAssert([kitFilter.forwardEvent isKindOfClass:[MPEvent class]]);
+    MPEvent *forwardEvent = (MPEvent *)kitFilter.forwardEvent;
     XCTAssertNotNil(forwardEvent);
     XCTAssertNotEqualObjects(forwardEvent.name, @"X_NEW_SUBSCRIPTION");
     XCTAssertEqualObjects(forwardEvent.name, @"SUBSCRIPTION_END");
@@ -1836,17 +1839,18 @@
     [kitContainer configureKits:configurations];
     
     MPEvent *event = [[MPEvent alloc] initWithName:@"test_string" type:MPEventTypeOther];
-    event.info = @{@"plan":@"premium"};
+    event.customAttributes = @{@"plan":@"premium"};
     
     MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
     MPKitFilter *kitFilter = [kitContainer filter:kitRegister forEvent:event selector:@selector(logEvent:)];
     
-    MPEvent *forwardEvent = kitFilter.forwardEvent;
+    XCTAssert([kitFilter.forwardEvent isKindOfClass:[MPEvent class]]);
+    MPEvent *forwardEvent = (MPEvent *)kitFilter.forwardEvent;
     XCTAssertNotNil(forwardEvent);
     XCTAssertEqualObjects(forwardEvent.name, @"af_add_payment_info");
-    XCTAssertNotNil(forwardEvent.info);
-    XCTAssertEqual(forwardEvent.info.count, 2);
-    XCTAssertEqualObjects(forwardEvent.info[@"af_success"], @"True");
+    XCTAssertNotNil(forwardEvent.customAttributes);
+    XCTAssertEqual(forwardEvent.customAttributes.count, 2);
+    XCTAssertEqualObjects(forwardEvent.customAttributes[@"af_success"], @"True");
 }
 
 - (void)testAttributeHashProjection {
@@ -1898,17 +1902,18 @@
     [kitContainer configureKits:configurations];
     
     MPEvent *event = [[MPEvent alloc] initWithName:@"test_string" type:MPEventTypeOther];
-    event.info = @{@"test_description":@"this is a description"};
+    event.customAttributes = @{@"test_description":@"this is a description"};
     
     MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
     MPKitFilter *kitFilter = [kitContainer filter:kitRegister forEvent:event selector:@selector(logEvent:)];
     
-    MPEvent *forwardEvent = kitFilter.forwardEvent;
+    XCTAssert([kitFilter.forwardEvent isKindOfClass:[MPEvent class]]);
+    MPEvent *forwardEvent = (MPEvent *)kitFilter.forwardEvent;
     XCTAssertNotNil(forwardEvent);
     XCTAssertEqualObjects(forwardEvent.name, @"af_achievement_unlocked");
-    XCTAssertNotNil(forwardEvent.info);
-    XCTAssertEqual(forwardEvent.info.count, 1);
-    XCTAssertEqualObjects(forwardEvent.info[@"af_description"], @"this is a description");
+    XCTAssertNotNil(forwardEvent.customAttributes);
+    XCTAssertEqual(forwardEvent.customAttributes.count, 1);
+    XCTAssertEqualObjects(forwardEvent.customAttributes[@"af_description"], @"this is a description");
 }
 
 - (void)testAllocation {    
@@ -1992,7 +1997,8 @@
     MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
     MPKitFilter *kitFilter = [kitContainer filter:kitRegister forCommerceEvent:commerceEvent];
     
-    XCTAssertEqualObjects(kitFilter.forwardEvent.name, @"af_content_view");
+    XCTAssert([kitFilter.forwardEvent isKindOfClass:[MPEvent class]]);
+    XCTAssertEqualObjects(((MPEvent *)kitFilter.forwardEvent).name, @"af_content_view");
 }
 
 - (void)testShouldDelayUploadMaxTime {
@@ -2002,8 +2008,7 @@
     XCTAssertTrue([localKitContainer shouldDelayUpload:10000]);
 }
 
-- (void)testIsDisabledByConsentKitFilter {
-    
+- (void)testIsDisabledByConsentKitFilterGPDR {
     MPConsentKitFilter *filter = [[MPConsentKitFilter alloc] init];
     
     filter.shouldIncludeOnMatch = YES;
@@ -2045,7 +2050,46 @@
     filter.shouldIncludeOnMatch = NO;
     isDisabled = [[MParticle sharedInstance].kitContainer isDisabledByConsentKitFilter:filter];
     XCTAssertTrue(isDisabled);
+}
+
+- (void)testIsDisabledByConsentKitFilterCCPA {
+    MPConsentKitFilter *filter = [[MPConsentKitFilter alloc] init];
     
+    filter.shouldIncludeOnMatch = YES;
+    
+    MPConsentKitFilterItem *item = [[MPConsentKitFilterItem alloc] init];
+    item.consented = YES;
+    item.javascriptHash = -575335347;
+    
+    NSMutableArray<MPConsentKitFilterItem *> *filterItems = [NSMutableArray array];
+    [filterItems addObject:item];
+    
+    filter.filterItems = [filterItems copy];
+    
+    MPConsentState *state = [[MPConsentState alloc] init];
+        
+    MPCCPAConsent *ccpaConsent = [[MPCCPAConsent alloc] init];
+    
+    ccpaConsent.consented = YES;
+    ccpaConsent.document = @"foo-document-1";
+    
+    NSDate *date = [NSDate date];
+    ccpaConsent.timestamp = date;
+    
+    ccpaConsent.location = @"foo-location-1";
+    ccpaConsent.hardwareId = @"foo-hardware-id-1";
+        
+    [state setCCPAConsentState: [ccpaConsent copy]];
+    
+    [MPPersistenceController setConsentState:state forMpid:[MPPersistenceController mpId]];
+    MParticle.sharedInstance.identity.currentUser.consentState = state;
+    
+    BOOL isDisabled = [[MParticle sharedInstance].kitContainer isDisabledByConsentKitFilter:filter];
+    XCTAssertFalse(isDisabled);
+    
+    filter.shouldIncludeOnMatch = NO;
+    isDisabled = [[MParticle sharedInstance].kitContainer isDisabledByConsentKitFilter:filter];
+    XCTAssertTrue(isDisabled);
 }
 
 - (void)testInitializeKitsWhenNilSupportedKits {
@@ -2073,11 +2117,13 @@
 }
 
 #if TARGET_OS_IOS == 1
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 - (void)testAttemptToLogEventToKit {
     MPKitContainer *localKitContainer = [[MPKitContainer alloc] init];
     
     MPEvent *event = [[MPEvent alloc] initWithName:@"test_string" type:MPEventTypeOther];
-    event.info = @{@"plan":@"premium"};
+    event.customAttributes = @{@"plan":@"premium"};
     
     MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
     id kitWrapperMock = OCMProtocolMock(@protocol(MPKitProtocol));
@@ -2085,9 +2131,55 @@
     OCMStub([kitRegisterMock wrapperInstance]).andReturn(kitWrapperMock);
     MPKitFilter *kitFilter = [kitContainer filter:kitRegisterMock forEvent:event selector:@selector(logEvent:)];
     
-    [(id <MPKitProtocol>)[kitWrapperMock expect] logEvent:OCMOCK_ANY];
+    [(id <MPKitProtocol>)[kitWrapperMock expect] logBaseEvent:OCMOCK_ANY];
+    // MPKitAppsFlyerTest supports logBaseEvent: so only it should be called on the kit
+    [(id <MPKitProtocol>)[kitWrapperMock reject] logEvent:OCMOCK_ANY];
+
 
     [localKitContainer attemptToLogEventToKit:kitRegister kitFilter:kitFilter selector:@selector(logEvent:) parameters:nil messageType:MPMessageTypeEvent userInfo:[[NSDictionary alloc] init]];
+    
+    [kitWrapperMock verifyWithDelay:5.0];
+    [kitWrapperMock stopMocking];
+    [kitRegisterMock stopMocking];
+}
+#pragma clang diagnostic pop
+
+- (void)testAttemptToLogBaseEventToKit {
+    MPKitContainer *localKitContainer = [[MPKitContainer alloc] init];
+    
+    MPEvent *event = [[MPEvent alloc] initWithName:@"test_string" type:MPEventTypeOther];
+    event.customAttributes = @{@"plan":@"premium"};
+    
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    id kitWrapperMock = OCMProtocolMock(@protocol(MPKitProtocol));
+    id kitRegisterMock = OCMPartialMock(kitRegister);
+    OCMStub([kitRegisterMock wrapperInstance]).andReturn(kitWrapperMock);
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegisterMock forEvent:event selector:@selector(logBaseEvent:)];
+    
+    [(id <MPKitProtocol>)[kitWrapperMock expect] logBaseEvent:OCMOCK_ANY];
+    
+    [localKitContainer attemptToLogEventToKit:kitRegister kitFilter:kitFilter selector:@selector(logBaseEvent:) parameters:nil messageType:MPMessageTypeEvent userInfo:[[NSDictionary alloc] init]];
+    
+    [kitWrapperMock verifyWithDelay:5.0];
+    [kitWrapperMock stopMocking];
+    [kitRegisterMock stopMocking];
+}
+
+- (void)testAttemptToLogBaseEventMediaTypeToKit {
+    MPKitContainer *localKitContainer = [[MPKitContainer alloc] init];
+    
+    MPEvent *event = [[MPEvent alloc] initWithName:@"test_string" type:MPEventTypeMedia];
+    event.customAttributes = @{@"plan":@"premium"};
+    
+    MPKitRegister *kitRegister = [[MPKitRegister alloc] initWithName:@"AppsFlyer" className:@"MPKitAppsFlyerTest"];
+    id kitWrapperMock = OCMProtocolMock(@protocol(MPKitProtocol));
+    id kitRegisterMock = OCMPartialMock(kitRegister);
+    OCMStub([kitRegisterMock wrapperInstance]).andReturn(kitWrapperMock);
+    MPKitFilter *kitFilter = [kitContainer filter:kitRegisterMock forEvent:event selector:@selector(logBaseEvent:)];
+    
+    [(id <MPKitProtocol>)[kitWrapperMock expect] logBaseEvent:OCMOCK_ANY];
+    
+    [localKitContainer attemptToLogEventToKit:kitRegister kitFilter:kitFilter selector:@selector(logBaseEvent:) parameters:nil messageType:MPMessageTypeEvent userInfo:[[NSDictionary alloc] init]];
     
     [kitWrapperMock verifyWithDelay:5.0];
     [kitWrapperMock stopMocking];

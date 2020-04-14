@@ -10,6 +10,7 @@
 #endif
 
 @class MPCommerceEvent;
+@class MPBaseEvent;
 @class MPEvent;
 @class MPKitExecStatus;
 @class MPUserSegments;
@@ -103,11 +104,12 @@
 - (nonnull MPKitExecStatus *)setConsentState:(nullable MPConsentState *)state;
 
 #pragma mark e-Commerce
-- (nonnull MPKitExecStatus *)logCommerceEvent:(nonnull MPCommerceEvent *)commerceEvent;
+- (nonnull MPKitExecStatus *)logCommerceEvent:(nonnull MPCommerceEvent *)commerceEvent __attribute__ ((deprecated));
 - (nonnull MPKitExecStatus *)logLTVIncrease:(double)increaseAmount event:(nonnull MPEvent *)event;
 
 #pragma mark Events
-- (nonnull MPKitExecStatus *)logEvent:(nonnull MPEvent *)event;
+- (nonnull MPKitExecStatus *)logBaseEvent:(nonnull MPBaseEvent *)event;
+- (nonnull MPKitExecStatus *)logEvent:(nonnull MPEvent *)event __attribute__ ((deprecated));
 - (nonnull MPKitExecStatus *)logInstall;
 - (nonnull MPKitExecStatus *)logout;
 - (nonnull MPKitExecStatus *)logScreen:(nonnull MPEvent *)event;
@@ -123,7 +125,6 @@
 - (nonnull MPKitExecStatus *)logException:(nonnull NSException *)exception;
 
 #pragma mark Assorted
-- (nonnull MPKitExecStatus *)setDebugMode:(BOOL)debugMode;
 - (nonnull MPKitExecStatus *)setKitAttribute:(nonnull NSString *)key value:(nullable id)value;
 - (nonnull MPKitExecStatus *)setOptOut:(BOOL)optOut;
 - (nullable NSString *)surveyURLWithUserAttributes:(nonnull NSDictionary *)userAttributes;
